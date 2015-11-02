@@ -26,7 +26,7 @@
   </parent>
   <groupId>org.apache.spark</groupId>
   <artifactId>spark-parent_2.10</artifactId>
-  <version>1.5.1-mmx2-SNAPSHOT</version>
+  <version>1.5.1-mmx2</version>
   <packaging>pom</packaging>
   <name>Spark Project Parent POM</name>
   <url>http://spark.apache.org/</url>
@@ -1968,7 +1968,7 @@
           </configuration>
           <executions>
             <execution>
-              <id>create-source-jar</id>
+              <id>attach-sources</id>
               <goals>
                 <goal>jar-no-fork</goal>
                 <goal>test-jar-no-fork</goal>
