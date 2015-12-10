@@ -68,7 +68,9 @@ private[spark] class MesosSchedulerBackend(
   override def start() {
     classLoader = Thread.currentThread.getContextClassLoader
     val driver = createSchedulerDriver(
-      master, MesosSchedulerBackend.this, sc.sparkUser, sc.appName, sc.conf)
+      master, MesosSchedulerBackend.this, sc.sparkUser, sc.appName, sc.conf,
+      webuiUrl = sc.ui.map(_.appUIHostPort)
+    )
     startScheduler(driver)
   }
 
