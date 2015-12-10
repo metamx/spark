@@ -79,6 +79,7 @@ class CoarseMesosSchedulerBackendSuite extends SparkFunSuite
   private def buildLimitedBackend() = {
     sc.conf.set("spark.cores.mb.min", "10000")
     sc.conf.set("spark.cores.mb.max", "100000")
+    sc.conf.set("spark.mesos.executor.memoryOverhead", "0")
     val driver = mock[SchedulerDriver]
     val taskScheduler = mock[TaskSchedulerImpl]
     when(taskScheduler.sc).thenReturn(sc)
@@ -102,7 +103,20 @@ class CoarseMesosSchedulerBackendSuite extends SparkFunSuite
   test("coarse mesos backend correctly keep sufficient offer") {
     assert(
       buildLimitedBackend().calculateDesiredResources(sc, 1, 80000)
-        .count(x => x._1 == 1 && x._2 == 80000) == 1
+        .map(
+          x => {
+            assertResult(1) {
+              x._1
+            }
+            assertResult(80000) {
+              x._2
+            }
+            assertResult(80000) {
+              x._3
+            }
+            x
+          }
+        ).nonEmpty
     )
   }
   test("coarse mesos backend correctly ignores insufficient offer") {
@@ -113,14 +127,40 @@ class CoarseMesosSchedulerBackendSuite extends SparkFunSuite
   test("coarse mesos backend correctly truncates CPU when too high") {
     assert(
       buildLimitedBackend().calculateDesiredResources(sc, 10, 80000)
-        .count(x => x._1 == 8 &&x._2 == 80000) == 1
+        .map(
+          x => {
+            assertResult(8) {
+              x._1
+            }
+            assertResult(80000) {
+              x._2
+            }
+            assertResult(80000) {
+              x._3
+            }
+            x
+          }
+        ).nonEmpty
     )
   }
 
   test("coarse mesos backend correctly truncates MEM when too high") {
     assert(
       buildLimitedBackend().calculateDesiredResources(sc, 1, 800000)
-        .count(x => x._1 == 1 && x._2 == 100000) == 1
+        .map(
+          x => {
+            assertResult(1) {
+              x._1
+            }
+            assertResult(100000) {
+              x._2
+            }
+            assertResult(100000) {
+              x._3
+            }
+            x
+          }
+        ).nonEmpty
     )
   }
 
@@ -142,24 +182,72 @@ class CoarseMesosSchedulerBackendSuite extends SparkFunSuite
     val taskScheduler = mock[TaskSchedulerImpl]
     when(taskScheduler.sc).thenReturn(sc)
     val backend = createSchedulerBackend(taskScheduler, driver)
-    assert(backend.maxMBPerCore == Double.MaxValue)
-    assert(backend.minMBPerCore == 1.0)
-    val minimumMem = backend.calculateTotalMemory(sc)
+    assertResult(Double.MaxValue) {
+      backend.maxMBPerCore
+    }
+    assertResult(1.0) {
+      backend.minMBPerCore
+    }
+    val minimumMem = backend.calculateMemoryOverhead(sc) + backend.minMBPerCore.toInt
     val minimumOffer = backend.calculateDesiredResources(sc, 1, minimumMem)
     assert(minimumOffer.isDefined)
-    assert(minimumOffer.get._1 == 1)
-    assert(minimumOffer.get._2 == minimumMem)
+    assertResult(1) {
+      minimumOffer.get._1
+    }
+    assertResult(minimumMem) {
+      minimumOffer.get._2
+    }
     assert(
-      backend.calculateDesiredResources(sc, 10, minimumMem)
-        .count(x => x._1 == 10 && x._2 == minimumMem) == 1
-    )
-    assert(
-      backend.calculateDesiredResources(sc, minimumMem, minimumMem)
-        .count(x => x._1 == minimumMem && x._2 == minimumMem) == 1
+      backend.calculateDesiredResources(sc, 10, minimumMem + backend.minMBPerCore.toInt * 9)
+        .map(
+          x => {
+            assertResult(10) {
+              x._1
+            }
+            assertResult(minimumMem + backend.minMBPerCore.toInt * 9) {
+              x._2
+            }
+            assertResult(backend.minMBPerCore * 10) {
+              x._3
+            }
+            x
+          }
+        )
+        .nonEmpty
     )
     assert(
       backend.calculateDesiredResources(sc, minimumMem + 1, minimumMem)
-        .count(x => x._1 == minimumMem && x._2 == minimumMem) == 1
+        .map(
+          x => {
+            assertResult(1) {
+              x._1
+            }
+            assertResult(minimumMem) {
+              x._2
+            }
+            assertResult(backend.minMBPerCore) {
+              x._3
+            }
+            x
+          }
+        ).nonEmpty
+    )
+    assert(
+      backend.calculateDesiredResources(sc, minimumMem, minimumMem + backend.minMBPerCore.toInt)
+        .map(
+          x => {
+            assertResult(2) {
+              x._1
+            }
+            assertResult(minimumMem + backend.minMBPerCore.toInt) {
+              x._2
+            }
+            assertResult(backend.minMBPerCore * 2) {
+              x._3
+            }
+            x
+          }
+        ).nonEmpty
     )
     assert(backend.calculateDesiredResources(sc, 1, minimumMem - 1).isEmpty)
   }
@@ -174,19 +262,71 @@ class CoarseMesosSchedulerBackendSuite extends SparkFunSuite
     assert(backend.calculateDesiredResources(sc, 1, 1).isEmpty)
     assert(
       backend.calculateDesiredResources(sc, 1, 10000)
-        .count(x => x._1 == 1 && x._2 == 10000) == 1
+        .map(
+          x => {
+            assertResult(1) {
+              x._1
+            }
+            assertResult(10000) {
+              x._2
+            }
+            assertResult(10000 - backend.calculateMemoryOverhead(sc)) {
+              x._3
+            }
+            x
+          }
+        ).nonEmpty
     )
     assert(
       backend.calculateDesiredResources(sc, 1, backend.calculateTotalMemory(sc))
-        .count(x => x._1 == 1 && x._2 == backend.calculateTotalMemory(sc)) == 1
+        .map(
+          x => {
+            assertResult(1) {
+              x._1
+            }
+            assertResult(backend.calculateTotalMemory(sc)) {
+              x._2
+            }
+            assertResult(backend.calculateTotalMemory(sc) - backend.calculateMemoryOverhead(sc)) {
+              x._3
+            }
+            x
+          }
+        ).nonEmpty
     )
     assert(
       backend.calculateDesiredResources(sc, 1, Integer.MAX_VALUE)
-        .count(x => x._1 == 1 && x._2 == Integer.MAX_VALUE) == 1
+        .map(
+          x => {
+            assertResult(1) {
+              x._1
+            }
+            assertResult(Integer.MAX_VALUE) {
+              x._2
+            }
+            assertResult(Integer.MAX_VALUE - backend.calculateMemoryOverhead(sc)) {
+              x._3
+            }
+            x
+          }
+        ).nonEmpty
     )
     assert(
       backend.calculateDesiredResources(sc, Integer.MAX_VALUE, 10000)
-        .count(x => x._1 == Integer.MAX_VALUE && x._2 == 10000) == 1
+        .map(
+          x => {
+            assertResult(Integer.MAX_VALUE) {
+              x._1
+            }
+            assertResult(10000) {
+              x._2
+            }
+            assertResult(10000 - backend.calculateMemoryOverhead(sc)) {
+              x._3
+            }
+            x
+          }
+        ).nonEmpty
     )
   }
 
