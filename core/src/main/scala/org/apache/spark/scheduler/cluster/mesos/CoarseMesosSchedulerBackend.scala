@@ -59,9 +59,9 @@ private[spark] class CoarseMesosSchedulerBackend(
   // Maximum number of cores to acquire (TODO: we'll need more flexible controls here)
   val maxCores = conf.get("spark.cores.max", Int.MaxValue.toString).toInt
 
-  // Minimum MB memory per core. Will reduce cores to meet this
+  // Minimum Heap MB memory per core. Will reduce cores to meet this
   val minMBPerCore = conf.getDouble("spark.cores.mb.min", 0.0)
-  // Maximum MB memory per core. Will truncate memory request to this limit
+  // Maximum Heap MB memory per core. Will truncate memory request to this limit
   val maxMBPerCore = conf.getDouble("spark.cores.mb.max", Double.MaxValue)
 
   // If shuffle service is enabled, the Spark driver will register with the shuffle service.
@@ -99,6 +99,8 @@ private[spark] class CoarseMesosSchedulerBackend(
   // may lead to deadlocks since the superclass might also try to lock
   private val stateLock = new ReentrantLock
 
+  // WARNING! this can cause a violation of the heap per core rule
+  // This setting over-subscribes the executor as far as cpu shares registered with Mesos
   val extraCoresPerSlave = conf.getInt("spark.mesos.extra.cores", 0)
 
   // Offer constraints
@@ -132,12 +134,12 @@ private[spark] class CoarseMesosSchedulerBackend(
     super.start()
     val driver = createSchedulerDriver(
       master, CoarseMesosSchedulerBackend.this, sc.sparkUser, sc.appName, sc.conf,
-      webuiUrl = sc.ui.map(_.appUIHostPort)
+      webuiUrl = sc.ui.map(_.appUIAddress)
     )
     startScheduler(driver)
   }
 
-  def createCommand(offer: Offer, numCores: Int, taskId: Int): CommandInfo = {
+  def createCommand(offer: Offer, numCores: Int, heapMem: Int, taskId: Int): CommandInfo = {
     val executorSparkHome = conf.getOption("spark.mesos.executor.home")
       .orElse(sc.getSparkHome())
       .getOrElse {
@@ -169,6 +171,12 @@ private[spark] class CoarseMesosSchedulerBackend(
         .setValue(value)
         .build())
     }
+    environment.addVariables(
+      Environment.Variable.newBuilder()
+        .setName("SPARK_EXECUTOR_MEMORY")
+        .setValue(heapMem.toString + "M")
+        .build()
+    )
     val command = CommandInfo.newBuilder()
       .setEnvironment(environment)
 
@@ -258,6 +266,8 @@ private[spark] class CoarseMesosSchedulerBackend(
             !slaveIdsWithExecutors.contains(slaveId)) {
           val cpusToUse = maybeUsableResources.get._1
           val memToUse = maybeUsableResources.get._2
+          val heapToUse = maybeUsableResources.get._3
+          logDebug(s"Launching with $cpusToUse cpu $heapToUse heap and $memToUse mem")
           // Launch an executor on the slave
           totalCoresAcquired += cpusToUse
           val taskId = newMesosTaskId()
@@ -272,7 +282,7 @@ private[spark] class CoarseMesosSchedulerBackend(
           val taskBuilder = MesosTaskInfo.newBuilder()
             .setTaskId(TaskID.newBuilder().setValue(taskId.toString).build())
             .setSlaveId(offer.getSlaveId)
-            .setCommand(createCommand(offer, cpusToUse + extraCoresPerSlave, taskId))
+            .setCommand(createCommand(offer, cpusToUse + extraCoresPerSlave, heapToUse, taskId))
             .setName("Task " + taskId)
             .addAllResources(cpuResourcesToUse)
             .addAllResources(memResourcesToUse)
@@ -391,34 +401,45 @@ private[spark] class CoarseMesosSchedulerBackend(
   /**
     * Try and fit the resources to the constraints
     * @param sc Spark context
-    * @param availableCpus The available CPUs
-    * @param availableMem The available Memory
-    * @return Tuple of CPU (integer cores)  and Memory (integer MB) desired
+    * @param totalAvailableCpus The available CPUs
+    * @param totalAvailableMem The available Memory
+    * @return Tuple of CPU (integer cores) total Memory (integer MB),
+    *         and Heap memory (integer MB) desired
     */
-  def calculateDesiredResources(sc: SparkContext, availableCpus: Int, availableMem: Int):
-  Option[(Int, Int)] =
+  def calculateDesiredResources(sc: SparkContext, totalAvailableCpus: Int, totalAvailableMem: Int):
+  Option[(Int, Int, Int)] =
   {
+
+    // This can be controlled manually via spark.mesos.executor.memoryOverhead
+    // It is HIGHLY recommended the overhead be set to something larger than
+    // MaxDirectMemory + MesosSchedulerUtils.MEMORY_OVERHEAD_MINIMUM + Desired File Page Cache
+    // NOTE: At the time of this writing the setting for MaxDirectMemory for the task
+    // launching JVM is NOT acccounted for. That means you can easily cause
+    // OOM killer if you bin pack based on heap alone and have lots of direct memory usage
+    // ....I'm looking at YOU netty....
+    val memoryOverhead = super.calculateMemoryOverhead(sc)
+    val availableMem = totalAvailableMem - memoryOverhead
+    // Don't account for extraCoresPerSlave  ... simply oversubscribe
+    val availableCpus = totalAvailableCpus
     if (availableCpus <= 0) {
       // Don't want divide by 0 error
-      logTrace(s"No CPUs")
+      logTrace(s"Insufficient CPUs")
       return None
     }
-    val desiredMemory = super.calculateTotalMemory(sc)
-    val minMB = Math.max(desiredMemory, minMBPerCore).toInt
     val mbCoreRatio = availableMem.toDouble / availableCpus.toDouble
 
-    if (availableMem < minMB) {
-      logTrace(s"Offer of $availableMem has insufficient memory. Needs at least $minMB")
+    if (availableMem < minMBPerCore) {
+      logTrace(s"Offer has insufficient memory to accomodate $minMBPerCore")
       None
     } else if (mbCoreRatio > maxMBPerCore) {
       // Too high? lower memory
       val desiredCPUMem = (maxMBPerCore * availableCpus).toInt
-      if(desiredCPUMem >= minMB) {
+      if(desiredCPUMem >= minMBPerCore) {
         logTrace(s"Too much memory available. Truncating to $desiredCPUMem")
-        Option((availableCpus, desiredCPUMem))
+        Option((availableCpus, desiredCPUMem + memoryOverhead, desiredCPUMem))
       } else {
         logTrace(s"Desired memory from number of cores $availableCpus " +
-          s"insufficient to meet minimum MB required $minMB")
+          s"insufficient to meet minimum MB required $minMBPerCore")
         None
       }
     } else if (mbCoreRatio < minMBPerCore.toDouble) {
@@ -429,11 +450,11 @@ private[spark] class CoarseMesosSchedulerBackend(
         None
       } else {
         logTrace(s"Not enough memory per cpu, lowering cpu count to $desiredCpus")
-        Option((desiredCpus, availableMem))
+        Option((desiredCpus, availableMem + memoryOverhead, availableMem))
       }
     } else {
       logTrace(s"Cpu and memory just right")
-      Option((availableCpus, availableMem))
+      Option((availableCpus, availableMem + memoryOverhead, availableMem))
     }
   }
 

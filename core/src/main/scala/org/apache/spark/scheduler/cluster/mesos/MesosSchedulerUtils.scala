@@ -326,9 +326,12 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
    *         (whichever is larger)
    */
   def calculateTotalMemory(sc: SparkContext): Int = {
+   calculateMemoryOverhead(sc) + sc.executorMemory
+  }
+
+  def calculateMemoryOverhead(sc: SparkContext): Int = {
     sc.conf.getInt("spark.mesos.executor.memoryOverhead",
-      math.max(MEMORY_OVERHEAD_FRACTION * sc.executorMemory, MEMORY_OVERHEAD_MINIMUM).toInt) +
-      sc.executorMemory
+      math.max(MEMORY_OVERHEAD_FRACTION * sc.executorMemory, MEMORY_OVERHEAD_MINIMUM).toInt)
   }
 
   def setupUris(uris: String, builder: CommandInfo.Builder): Unit = {
