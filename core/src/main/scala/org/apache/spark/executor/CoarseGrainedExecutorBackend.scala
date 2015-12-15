@@ -23,6 +23,7 @@ import java.nio.ByteBuffer
 import org.apache.hadoop.conf.Configuration
 
 import scala.collection.mutable
+import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
 import org.apache.spark.rpc._
@@ -110,9 +111,33 @@ private[spark] class CoarseGrainedExecutorBackend(
 
     case StopExecutor =>
       logInfo("Driver commanded a shutdown")
-      executor.stop()
-      stop()
-      rpcEnv.shutdown()
+      try {
+        try {
+          logTrace("Stopping delegate executor")
+          executor.stop()
+        }
+        catch {
+          case NonFatal(e) => logWarning("Error stopping delegate executor", e)
+        }
+        try {
+          logTrace("Stopping coarse executor")
+          stop()
+        }
+        catch {
+          case NonFatal(e) => logWarning("Error stopping coarse executor", e)
+        }
+        try {
+          logTrace("Stopping rpc env")
+          rpcEnv.shutdown()
+        }
+        catch {
+          case NonFatal(e) => logWarning("Error stopping rpc environment", e)
+        }
+      } catch {
+        case e: Throwable =>
+          logWarning("Unhandled exception during shutdown", e)
+          throw e
+      }
   }
 
   override def onDisconnected(remoteAddress: RpcAddress): Unit = {

@@ -20,6 +20,7 @@ package org.apache.spark.util
 import java.io.File
 import java.util.PriorityQueue
 
+import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 import tachyon.client.TachyonFile
 
@@ -62,7 +63,7 @@ private[spark] object ShutdownHookManager extends Logging {
         logInfo("Deleting directory " + dirPath)
         Utils.deleteRecursively(new File(dirPath))
       } catch {
-        case e: Exception => logError(s"Exception while deleting Spark temp dir: $dirPath", e)
+        case NonFatal(e) => logError(s"Exception while deleting Spark temp dir: $dirPath", e)
       }
     }
   }

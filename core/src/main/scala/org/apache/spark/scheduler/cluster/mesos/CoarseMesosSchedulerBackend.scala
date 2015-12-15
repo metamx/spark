@@ -18,9 +18,12 @@
 package org.apache.spark.scheduler.cluster.mesos
 
 import java.io.File
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import java.util.{Collections, List => JList}
 
+import com.google.common.base.Stopwatch
 import com.google.common.collect.HashBiMap
 import org.apache.mesos.Protos.{TaskInfo => MesosTaskInfo, _}
 import org.apache.mesos.{Scheduler => MScheduler, SchedulerDriver}
@@ -63,6 +66,11 @@ private[spark] class CoarseMesosSchedulerBackend(
   val minMBPerCore = conf.getDouble("spark.cores.mb.min", 0.0)
   // Maximum Heap MB memory per core. Will truncate memory request to this limit
   val maxMBPerCore = conf.getDouble("spark.cores.mb.max", Double.MaxValue)
+
+  val shutdownTimeoutMS = conf.getInt("spark.mesos.coarse.shutdown.ms", 10000)
+    .ensuring(_ >= 0, "spark.mesos.coarse.shutdown.ms must be >= 0")
+
+  val stopCalled = new AtomicBoolean(false)
 
   // If shuffle service is enabled, the Spark driver will register with the shuffle service.
   // This is for cleaning up shuffle files reliably.
@@ -227,7 +235,9 @@ private[spark] class CoarseMesosSchedulerBackend(
     }
   }
 
-  override def offerRescinded(d: SchedulerDriver, o: OfferID) {}
+  override def offerRescinded(d: SchedulerDriver, o: OfferID): Unit = {
+    logTrace(s"Offer `${o.getValue}` rescinded")
+  }
 
   override def registered(d: SchedulerDriver, frameworkId: FrameworkID, masterInfo: MasterInfo) {
     appId = frameworkId.getValue
@@ -236,9 +246,14 @@ private[spark] class CoarseMesosSchedulerBackend(
     markRegistered()
   }
 
-  override def disconnected(d: SchedulerDriver) {}
+  override def disconnected(d: SchedulerDriver): Unit = {
+    logWarning(s"Disconnected")
+  }
 
-  override def reregistered(d: SchedulerDriver, masterInfo: MasterInfo) {}
+  override def reregistered(d: SchedulerDriver, masterInfo: MasterInfo): Unit = {
+    // TODO: reconciliation
+    logInfo(s"Reregistered with master `${masterInfo.getId}` at `${masterInfo.getHostname}`")
+  }
 
   /**
    * Method called by Mesos to offer resources on slaves. We respond by launching an executor,
@@ -246,6 +261,13 @@ private[spark] class CoarseMesosSchedulerBackend(
    */
   override def resourceOffers(d: SchedulerDriver, offers: JList[Offer]) {
     stateLock.synchronized {
+      if (stopCalled.get()) {
+        logDebug("Ignoring offers during shutdown")
+        // Driver should simply return a stopped status on race
+        // condition between this.stop() and completing here
+        offers.map(_.getId).foreach(d.declineOffer)
+        return
+      }
       val filters = Filters.newBuilder().setRefuseSeconds(5).build()
       for (offer <- offers) {
         val offerAttributes = toAttributeMap(offer.getAttributesList)
@@ -363,13 +385,33 @@ private[spark] class CoarseMesosSchedulerBackend(
   }
 
   override def stop() {
-    super.stop()
+    // Make sure we're not launching tasks during shutdown
+    stateLock.synchronized {
+      if (!stopCalled.compareAndSet(false, true)) {
+        logWarning("Stop called multiple times, ignoring")
+        return
+      }
+      super.stop()
+    }
+    // Wait for finish
+    val stopwatch = new Stopwatch()
+    stopwatch.start()
+    // Eventually consistent slaveIdsWithExecutors
+    while (slaveIdsWithExecutors.nonEmpty &&
+      stopwatch.elapsed(TimeUnit.MILLISECONDS) < shutdownTimeoutMS) {
+      Thread.sleep(10)
+    }
     if (mesosDriver != null) {
+      logTrace("Stopping mesos Driver")
       mesosDriver.stop()
     }
   }
 
-  override def frameworkMessage(d: SchedulerDriver, e: ExecutorID, s: SlaveID, b: Array[Byte]) {}
+  override def frameworkMessage(
+    d: SchedulerDriver, e: ExecutorID, s: SlaveID, b: Array[Byte]
+  ): Unit = {
+    logTrace(s"Executor ${e.getValue} on slave ${s.getValue} sent a message of length ${b.length}")
+  }
 
   /**
    * Called when a slave is lost or a Mesos task finished. Update local view on
