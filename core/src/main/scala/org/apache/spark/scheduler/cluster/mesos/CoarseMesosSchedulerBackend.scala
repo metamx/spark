@@ -227,7 +227,9 @@ private[spark] class CoarseMesosSchedulerBackend(
     }
   }
 
-  override def offerRescinded(d: SchedulerDriver, o: OfferID) {}
+  override def offerRescinded(d: SchedulerDriver, o: OfferID): Unit = {
+    logTrace(s"Offer `${o.getValue}` rescinded")
+  }
 
   override def registered(d: SchedulerDriver, frameworkId: FrameworkID, masterInfo: MasterInfo) {
     appId = frameworkId.getValue
@@ -236,9 +238,14 @@ private[spark] class CoarseMesosSchedulerBackend(
     markRegistered()
   }
 
-  override def disconnected(d: SchedulerDriver) {}
+  override def disconnected(d: SchedulerDriver): Unit = {
+    logWarning(s"Disconnected")
+  }
 
-  override def reregistered(d: SchedulerDriver, masterInfo: MasterInfo) {}
+  override def reregistered(d: SchedulerDriver, masterInfo: MasterInfo): Unit = {
+    // TODO: reconciliation
+    logInfo(s"Reregistered with master `${masterInfo.getId}` at `${masterInfo.getHostname}`")
+  }
 
   /**
    * Method called by Mesos to offer resources on slaves. We respond by launching an executor,
@@ -365,11 +372,16 @@ private[spark] class CoarseMesosSchedulerBackend(
   override def stop() {
     super.stop()
     if (mesosDriver != null) {
+      logTrace("Stopping mesos Driver")
       mesosDriver.stop()
     }
   }
 
-  override def frameworkMessage(d: SchedulerDriver, e: ExecutorID, s: SlaveID, b: Array[Byte]) {}
+  override def frameworkMessage(
+    d: SchedulerDriver, e: ExecutorID, s: SlaveID, b: Array[Byte]
+  ): Unit = {
+    logTrace(s"Executor ${e.getValue} on slave ${s.getValue} sent a message of length ${b.length}")
+  }
 
   /**
    * Called when a slave is lost or a Mesos task finished. Update local view on

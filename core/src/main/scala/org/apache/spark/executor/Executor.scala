@@ -135,13 +135,38 @@ private[spark] class Executor(
   }
 
   def stop(): Unit = {
-    env.metricsSystem.report()
-    env.rpcEnv.stop(executorEndpoint)
-    heartbeater.shutdown()
-    heartbeater.awaitTermination(10, TimeUnit.SECONDS)
-    threadPool.shutdown()
+    try {
+      logTrace("Reporting final metrics")
+      env.metricsSystem.report()
+    } catch {
+      case NonFatal(e) => logWarning("Error reporting final metrics", e)
+    }
+    try {
+      logTrace("Stopping executorEndpoing")
+      env.rpcEnv.stop(executorEndpoint)
+    } catch {
+      case NonFatal(e) => logWarning("Error stopping executor endpoint rpc environment", e)
+    }
+    try {
+      logTrace("Shutting down heartbeater")
+      heartbeater.shutdown()
+      heartbeater.awaitTermination(10, TimeUnit.SECONDS)
+    } catch {
+      case NonFatal(e) => logWarning("Error stopping heartbeater", e)
+    }
+    try {
+      logTrace("Shutting down threadPool")
+      threadPool.shutdown()
+    } catch {
+      case NonFatal(e) => logWarning("Error stopping threadPool", e)
+    }
     if (!isLocal) {
-      env.stop()
+      try {
+        logTrace("Stopping executor environment")
+        env.stop()
+      } catch {
+        case NonFatal(e) => logWarning("Error stopping executor environment", e)
+      }
     }
   }
 

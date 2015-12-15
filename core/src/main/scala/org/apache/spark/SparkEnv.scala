@@ -44,6 +44,8 @@ import org.apache.spark.storage._
 import org.apache.spark.unsafe.memory.{ExecutorMemoryManager, MemoryAllocator}
 import org.apache.spark.util.{RpcUtils, Utils}
 
+import scala.util.control.NonFatal
+
 /**
  * :: DeveloperApi ::
  * Holds all the runtime environment objects for a running Spark instance (either master or worker),
@@ -92,16 +94,80 @@ class SparkEnv (
 
     if (!isStopped) {
       isStopped = true
-      pythonWorkers.values.foreach(_.stop())
-      Option(httpFileServer).foreach(_.stop())
-      mapOutputTracker.stop()
-      shuffleManager.stop()
-      broadcastManager.stop()
-      blockManager.stop()
-      blockManager.master.stop()
-      metricsSystem.stop()
-      outputCommitCoordinator.stop()
-      rpcEnv.shutdown()
+      logTrace("Stopping python workers")
+      pythonWorkers.values.foreach(w => {
+        try {
+          w.stop()
+        } catch {
+          case NonFatal(e) =>
+            logWarning(s"Error stopping python workers", e)
+        }
+      })
+      logTrace("Stopping http file servers")
+      Option(httpFileServer).foreach(w => {
+        try {
+          w.stop()
+        } catch {
+          case NonFatal(e) =>
+            logWarning(s"Error stopping file server", e)
+        }
+      })
+      logTrace("Stopping output tracker")
+      try {
+        mapOutputTracker.stop()
+      } catch {
+        case NonFatal(e) =>
+          logWarning(s"Error stopping output tracker", e)
+      }
+      logTrace("Stopping shuffle manager")
+      try {
+        shuffleManager.stop()
+      } catch {
+        case NonFatal(e) =>
+          logWarning(s"Error stopping shuffle manager", e)
+      }
+      logTrace("Stopping broadcast manager")
+      try {
+        broadcastManager.stop()
+      } catch {
+        case NonFatal(e) =>
+          logWarning(s"Error stopping broadcast manager", e)
+      }
+      logTrace("Stopping block manager")
+      try {
+        blockManager.stop()
+      } catch {
+        case NonFatal(e) =>
+          logWarning(s"Error stopping block manager", e)
+      }
+      logTrace("Stopping block manager master")
+      try {
+        blockManager.master.stop()
+      } catch {
+        case NonFatal(e) =>
+          logWarning(s"Error stopping block manager master", e)
+      }
+      logTrace("Stopping metrics system")
+      try {
+        metricsSystem.stop()
+      } catch {
+        case NonFatal(e) =>
+          logWarning(s"Error stopping metric system", e)
+      }
+      logTrace("Stopping commit coordinator")
+      try {
+        outputCommitCoordinator.stop()
+      } catch {
+        case NonFatal(e) =>
+          logWarning(s"Error stopping commit coordinator", e)
+      }
+      logTrace("Shutting down rpc environment")
+      try {
+        rpcEnv.shutdown()
+      } catch {
+        case NonFatal(e) =>
+          logWarning(s"Error stopping rpc environment", e)
+      }
 
       // Unfortunately Akka's awaitTermination doesn't actually wait for the Netty server to shut
       // down, but let's call it anyway in case it gets fixed in a later release
@@ -117,6 +183,7 @@ class SparkEnv (
       driverTmpDirToDelete match {
         case Some(path) => {
           try {
+            logTrace(s"Deleting `$path`")
             Utils.deleteRecursively(new File(path))
           } catch {
             case e: Exception =>
@@ -125,6 +192,8 @@ class SparkEnv (
         }
         case None => // We just need to delete tmp dir created by driver, so do nothing on executor
       }
+    } else {
+      logDebug("Skipping stop() call: already stopped")
     }
   }
 
