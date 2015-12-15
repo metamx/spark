@@ -18,12 +18,15 @@
 package org.apache.spark.scheduler.cluster.mesos
 
 import java.io.File
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import java.util.{Collections, List => JList}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{HashMap, HashSet}
 
+import com.google.common.base.Stopwatch
 import com.google.common.collect.HashBiMap
 import org.apache.mesos.Protos.{TaskInfo => MesosTaskInfo, _}
 import org.apache.mesos.{Scheduler => MScheduler, SchedulerDriver}
@@ -59,6 +62,12 @@ private[spark] class CoarseMesosSchedulerBackend(
 
   // Maximum number of cores to acquire (TODO: we'll need more flexible controls here)
   val maxCores = conf.get("spark.cores.max", Int.MaxValue.toString).toInt
+
+  private[this] val shutdownTimeoutMS = conf.getInt("spark.mesos.coarse.shutdown.ms", 10000)
+    .ensuring(_ >= 0, "spark.mesos.coarse.shutdown.ms must be >= 0")
+
+  // Synchronization protected by stateLock
+  private[this] var stopCalled: Boolean = false
 
   // If shuffle service is enabled, the Spark driver will register with the shuffle service.
   // This is for cleaning up shuffle files reliably.
@@ -245,6 +254,13 @@ private[spark] class CoarseMesosSchedulerBackend(
    */
   override def resourceOffers(d: SchedulerDriver, offers: JList[Offer]) {
     stateLock.synchronized {
+      if (stopCalled) {
+        logDebug("Ignoring offers during shutdown")
+        // Driver should simply return a stopped status on race
+        // condition between this.stop() and completing here
+        offers.asScala.map(_.getId).foreach(d.declineOffer)
+        return
+      }
       val filters = Filters.newBuilder().setRefuseSeconds(5).build()
       for (offer <- offers.asScala) {
         val offerAttributes = toAttributeMap(offer.getAttributesList)
@@ -364,7 +380,23 @@ private[spark] class CoarseMesosSchedulerBackend(
   }
 
   override def stop() {
-    super.stop()
+    // Make sure we're not launching tasks during shutdown
+    stateLock.synchronized {
+      if (stopCalled) {
+        logWarning("Stop called multiple times, ignoring")
+        return
+      }
+      stopCalled = true
+      super.stop()
+    }
+    // Wait for finish
+    val stopwatch = new Stopwatch()
+    stopwatch.start()
+    // Eventually consistent slaveIdsWithExecutors
+    while (slaveIdsWithExecutors.nonEmpty &&
+      stopwatch.elapsed(TimeUnit.MILLISECONDS) < shutdownTimeoutMS) {
+      Thread.sleep(10)
+    }
     if (mesosDriver != null) {
       mesosDriver.stop()
     }
