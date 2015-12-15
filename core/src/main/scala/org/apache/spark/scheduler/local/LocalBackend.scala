@@ -28,6 +28,8 @@ import org.apache.spark.rpc.{RpcCallContext, RpcEndpointRef, RpcEnv, ThreadSafeR
 import org.apache.spark.scheduler._
 import org.apache.spark.scheduler.cluster.ExecutorInfo
 
+import scala.util.control.NonFatal
+
 private case class ReviveOffers()
 
 private case class StatusUpdate(taskId: Long, state: TaskState, serializedData: ByteBuffer)
@@ -74,7 +76,11 @@ private[spark] class LocalEndpoint(
 
   override def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
     case StopExecutor =>
-      executor.stop()
+      try {
+        executor.stop()
+      } catch {
+        case NonFatal(e) => logWarning("Error stopping executor", e)
+      }
       context.reply(true)
   }
 
