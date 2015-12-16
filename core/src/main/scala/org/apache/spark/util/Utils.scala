@@ -568,7 +568,9 @@ private[spark] object Utils extends Logging {
                         filename = Some(filename))
       }
     } catch {
-      case e: Throwable => throw new IllegalStateException("Unable to fetch file %s into <%s> / <%s>".format(url, targetDir, filename))
+      case NonFatal(e) => throw new IllegalStateException(
+        s"Unable to fetch file $url into $targetDir as $filename",
+        e)
     }
   }
 
