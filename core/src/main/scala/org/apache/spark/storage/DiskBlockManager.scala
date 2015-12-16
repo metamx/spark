@@ -24,6 +24,8 @@ import org.apache.spark.{SparkConf, Logging}
 import org.apache.spark.executor.ExecutorExitCode
 import org.apache.spark.util.{ShutdownHookManager, Utils}
 
+import scala.util.control.NonFatal
+
 /**
  * Creates and maintains the logical mapping between logical blocks and physical on-disk
  * locations. By default, one block is mapped to one file with a name given by its BlockId.
@@ -51,7 +53,10 @@ private[spark] class DiskBlockManager(blockManager: BlockManager, conf: SparkCon
   // of subDirs(i) is protected by the lock of subDirs(i)
   private val subDirs = Array.fill(localDirs.length)(new Array[File](subDirsPerLocalDir))
 
-  private val shutdownHook = addShutdownHook()
+  private val shutdownHook = {
+    logDebug("Adding shutdown hook")
+    addShutdownHook()
+  }
 
   /** Looks up a file by hashing it into one of our local subdirectories. */
   // This method should be kept in sync with
@@ -146,7 +151,11 @@ private[spark] class DiskBlockManager(blockManager: BlockManager, conf: SparkCon
   private def addShutdownHook(): AnyRef = {
     ShutdownHookManager.addShutdownHook(ShutdownHookManager.TEMP_DIR_SHUTDOWN_PRIORITY + 1) { () =>
       logInfo("Shutdown hook called")
-      DiskBlockManager.this.doStop()
+      try {
+        DiskBlockManager.this.doStop()
+      } catch {
+        case NonFatal(e) => logError(s"Exception while stopping DiskBlockManager", e)
+      }
     }
   }
 
@@ -170,13 +179,17 @@ private[spark] class DiskBlockManager(blockManager: BlockManager, conf: SparkCon
       localDirs.foreach { localDir =>
         if (localDir.isDirectory() && localDir.exists()) {
           try {
+            logTrace(s"doStop checking `$localDir`")
             if (!ShutdownHookManager.hasRootAsShutdownDeleteDir(localDir)) {
+              logDebug(s"Removing local block directory `$localDir`")
               Utils.deleteRecursively(localDir)
             }
           } catch {
             case e: Exception =>
               logError(s"Exception while deleting local spark dir: $localDir", e)
           }
+        } else {
+          logTrace(s"`$localDir` is either not a directory or does not exist")
         }
       }
     }

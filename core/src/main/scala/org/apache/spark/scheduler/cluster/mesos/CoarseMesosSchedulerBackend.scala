@@ -18,23 +18,25 @@
 package org.apache.spark.scheduler.cluster.mesos
 
 import java.io.File
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import java.util.{Collections, List => JList}
 
-import scala.collection.JavaConversions._
-import scala.collection.mutable.{HashMap, HashSet}
-
+import com.google.common.base.Stopwatch
 import com.google.common.collect.HashBiMap
 import org.apache.mesos.Protos.{TaskInfo => MesosTaskInfo, _}
 import org.apache.mesos.{Scheduler => MScheduler, SchedulerDriver}
-
-import org.apache.spark.{SecurityManager, SparkContext, SparkEnv, SparkException, TaskState}
 import org.apache.spark.network.netty.SparkTransportConf
 import org.apache.spark.network.shuffle.mesos.MesosExternalShuffleClient
 import org.apache.spark.rpc.RpcAddress
 import org.apache.spark.scheduler.TaskSchedulerImpl
 import org.apache.spark.scheduler.cluster.CoarseGrainedSchedulerBackend
 import org.apache.spark.util.Utils
+import org.apache.spark.{SecurityManager, SparkContext, SparkEnv, SparkException, TaskState}
+
+import scala.collection.JavaConversions._
+import scala.collection.mutable.{HashMap, HashSet}
 
 /**
  * A SchedulerBackend that runs tasks on Mesos, but uses "coarse-grained" tasks, where it holds
@@ -59,6 +61,16 @@ private[spark] class CoarseMesosSchedulerBackend(
 
   // Maximum number of cores to acquire (TODO: we'll need more flexible controls here)
   val maxCores = conf.get("spark.cores.max", Int.MaxValue.toString).toInt
+
+  // Minimum Heap MB memory per core. Will reduce cores to meet this
+  val minMBPerCore = conf.getDouble("spark.cores.mb.min", 0.0)
+  // Maximum Heap MB memory per core. Will truncate memory request to this limit
+  val maxMBPerCore = conf.getDouble("spark.cores.mb.max", Double.MaxValue)
+
+  val shutdownTimeoutMS = conf.getInt("spark.mesos.coarse.shutdown.ms", 10000)
+    .ensuring(_ >= 0, "spark.mesos.coarse.shutdown.ms must be >= 0")
+
+  val stopCalled = new AtomicBoolean(false)
 
   // If shuffle service is enabled, the Spark driver will register with the shuffle service.
   // This is for cleaning up shuffle files reliably.
@@ -95,6 +107,8 @@ private[spark] class CoarseMesosSchedulerBackend(
   // may lead to deadlocks since the superclass might also try to lock
   private val stateLock = new ReentrantLock
 
+  // WARNING! this can cause a violation of the heap per core rule
+  // This setting over-subscribes the executor as far as cpu shares registered with Mesos
   val extraCoresPerSlave = conf.getInt("spark.mesos.extra.cores", 0)
 
   // Offer constraints
@@ -127,11 +141,13 @@ private[spark] class CoarseMesosSchedulerBackend(
   override def start() {
     super.start()
     val driver = createSchedulerDriver(
-      master, CoarseMesosSchedulerBackend.this, sc.sparkUser, sc.appName, sc.conf)
+      master, CoarseMesosSchedulerBackend.this, sc.sparkUser, sc.appName, sc.conf,
+      webuiUrl = sc.ui.map(_.appUIAddress)
+    )
     startScheduler(driver)
   }
 
-  def createCommand(offer: Offer, numCores: Int, taskId: Int): CommandInfo = {
+  def createCommand(offer: Offer, numCores: Int, heapMem: Int, taskId: Int): CommandInfo = {
     val executorSparkHome = conf.getOption("spark.mesos.executor.home")
       .orElse(sc.getSparkHome())
       .getOrElse {
@@ -163,6 +179,12 @@ private[spark] class CoarseMesosSchedulerBackend(
         .setValue(value)
         .build())
     }
+    environment.addVariables(
+      Environment.Variable.newBuilder()
+        .setName("SPARK_EXECUTOR_MEMORY")
+        .setValue(heapMem.toString + "M")
+        .build()
+    )
     val command = CommandInfo.newBuilder()
       .setEnvironment(environment)
 
@@ -213,7 +235,9 @@ private[spark] class CoarseMesosSchedulerBackend(
     }
   }
 
-  override def offerRescinded(d: SchedulerDriver, o: OfferID) {}
+  override def offerRescinded(d: SchedulerDriver, o: OfferID): Unit = {
+    logTrace(s"Offer `${o.getValue}` rescinded")
+  }
 
   override def registered(d: SchedulerDriver, frameworkId: FrameworkID, masterInfo: MasterInfo) {
     appId = frameworkId.getValue
@@ -222,9 +246,14 @@ private[spark] class CoarseMesosSchedulerBackend(
     markRegistered()
   }
 
-  override def disconnected(d: SchedulerDriver) {}
+  override def disconnected(d: SchedulerDriver): Unit = {
+    logWarning(s"Disconnected")
+  }
 
-  override def reregistered(d: SchedulerDriver, masterInfo: MasterInfo) {}
+  override def reregistered(d: SchedulerDriver, masterInfo: MasterInfo): Unit = {
+    // TODO: reconciliation
+    logInfo(s"Reregistered with master `${masterInfo.getId}` at `${masterInfo.getHostname}`")
+  }
 
   /**
    * Method called by Mesos to offer resources on slaves. We respond by launching an executor,
@@ -232,6 +261,13 @@ private[spark] class CoarseMesosSchedulerBackend(
    */
   override def resourceOffers(d: SchedulerDriver, offers: JList[Offer]) {
     stateLock.synchronized {
+      if (stopCalled.get()) {
+        logDebug("Ignoring offers during shutdown")
+        // Driver should simply return a stopped status on race
+        // condition between this.stop() and completing here
+        offers.map(_.getId).foreach(d.declineOffer)
+        return
+      }
       val filters = Filters.newBuilder().setRefuseSeconds(5).build()
       for (offer <- offers) {
         val offerAttributes = toAttributeMap(offer.getAttributesList)
@@ -240,15 +276,21 @@ private[spark] class CoarseMesosSchedulerBackend(
         val mem = getResource(offer.getResourcesList, "mem")
         val cpus = getResource(offer.getResourcesList, "cpus").toInt
         val id = offer.getId.getValue
+        // Returns NONE if offer isn't sufficient
+        val maybeUsableResources = calculateDesiredResources(
+          sc, math.min(cpus, maxCores - totalCoresAcquired), mem.toInt
+        )
         if (taskIdToSlaveId.size < executorLimit &&
             totalCoresAcquired < maxCores &&
             meetsConstraints &&
-            mem >= calculateTotalMemory(sc) &&
-            cpus >= 1 &&
+            maybeUsableResources.isDefined &&
             failuresBySlaveId.getOrElse(slaveId, 0) < MAX_SLAVE_FAILURES &&
             !slaveIdsWithExecutors.contains(slaveId)) {
+          val cpusToUse = maybeUsableResources.get._1
+          val memToUse = maybeUsableResources.get._2
+          val heapToUse = maybeUsableResources.get._3
+          logDebug(s"Launching with $cpusToUse cpu $heapToUse heap and $memToUse mem")
           // Launch an executor on the slave
-          val cpusToUse = math.min(cpus, maxCores - totalCoresAcquired)
           totalCoresAcquired += cpusToUse
           val taskId = newMesosTaskId()
           taskIdToSlaveId(taskId) = slaveId
@@ -258,11 +300,11 @@ private[spark] class CoarseMesosSchedulerBackend(
           val (remainingResources, cpuResourcesToUse) =
             partitionResources(offer.getResourcesList, "cpus", cpusToUse)
           val (_, memResourcesToUse) =
-            partitionResources(remainingResources, "mem", calculateTotalMemory(sc))
+            partitionResources(remainingResources, "mem", memToUse)
           val taskBuilder = MesosTaskInfo.newBuilder()
             .setTaskId(TaskID.newBuilder().setValue(taskId.toString).build())
             .setSlaveId(offer.getSlaveId)
-            .setCommand(createCommand(offer, cpusToUse + extraCoresPerSlave, taskId))
+            .setCommand(createCommand(offer, cpusToUse + extraCoresPerSlave, heapToUse, taskId))
             .setName("Task " + taskId)
             .addAllResources(cpuResourcesToUse)
             .addAllResources(memResourcesToUse)
@@ -343,13 +385,33 @@ private[spark] class CoarseMesosSchedulerBackend(
   }
 
   override def stop() {
-    super.stop()
+    // Make sure we're not launching tasks during shutdown
+    stateLock.synchronized {
+      if (!stopCalled.compareAndSet(false, true)) {
+        logWarning("Stop called multiple times, ignoring")
+        return
+      }
+      super.stop()
+    }
+    // Wait for finish
+    val stopwatch = new Stopwatch()
+    stopwatch.start()
+    // Eventually consistent slaveIdsWithExecutors
+    while (slaveIdsWithExecutors.nonEmpty &&
+      stopwatch.elapsed(TimeUnit.MILLISECONDS) < shutdownTimeoutMS) {
+      Thread.sleep(10)
+    }
     if (mesosDriver != null) {
+      logTrace("Stopping mesos Driver")
       mesosDriver.stop()
     }
   }
 
-  override def frameworkMessage(d: SchedulerDriver, e: ExecutorID, s: SlaveID, b: Array[Byte]) {}
+  override def frameworkMessage(
+    d: SchedulerDriver, e: ExecutorID, s: SlaveID, b: Array[Byte]
+  ): Unit = {
+    logTrace(s"Executor ${e.getValue} on slave ${s.getValue} sent a message of length ${b.length}")
+  }
 
   /**
    * Called when a slave is lost or a Mesos task finished. Update local view on
@@ -376,6 +438,66 @@ private[spark] class CoarseMesosSchedulerBackend(
 
   private def sparkExecutorId(slaveId: String, taskId: String): String = {
     s"$slaveId/$taskId"
+  }
+
+  /**
+    * Try and fit the resources to the constraints
+    * @param sc Spark context
+    * @param totalAvailableCpus The available CPUs
+    * @param totalAvailableMem The available Memory
+    * @return Tuple of CPU (integer cores) total Memory (integer MB),
+    *         and Heap memory (integer MB) desired
+    */
+  def calculateDesiredResources(sc: SparkContext, totalAvailableCpus: Int, totalAvailableMem: Int):
+  Option[(Int, Int, Int)] =
+  {
+
+    // This can be controlled manually via spark.mesos.executor.memoryOverhead
+    // It is HIGHLY recommended the overhead be set to something larger than
+    // MaxDirectMemory + MesosSchedulerUtils.MEMORY_OVERHEAD_MINIMUM + Desired File Page Cache
+    // NOTE: At the time of this writing the setting for MaxDirectMemory for the task
+    // launching JVM is NOT acccounted for. That means you can easily cause
+    // OOM killer if you bin pack based on heap alone and have lots of direct memory usage
+    // ....I'm looking at YOU netty....
+    val memoryOverhead = super.calculateMemoryOverhead(sc)
+    val availableMem = totalAvailableMem - memoryOverhead
+    // Don't account for extraCoresPerSlave  ... simply oversubscribe
+    val availableCpus = totalAvailableCpus
+    if (availableCpus <= 0) {
+      // Don't want divide by 0 error
+      logTrace(s"Insufficient CPUs")
+      return None
+    }
+    val mbCoreRatio = availableMem.toDouble / availableCpus.toDouble
+
+    if (availableMem < minMBPerCore) {
+      logTrace(s"Offer has insufficient memory to accomodate $minMBPerCore")
+      None
+    } else if (mbCoreRatio > maxMBPerCore) {
+      // Too high? lower memory
+      val desiredCPUMem = (maxMBPerCore * availableCpus).toInt
+      if(desiredCPUMem >= minMBPerCore) {
+        logTrace(s"Too much memory available. Truncating to $desiredCPUMem")
+        Option((availableCpus, desiredCPUMem + memoryOverhead, desiredCPUMem))
+      } else {
+        logTrace(s"Desired memory from number of cores $availableCpus " +
+          s"insufficient to meet minimum MB required $minMBPerCore")
+        None
+      }
+    } else if (mbCoreRatio < minMBPerCore.toDouble) {
+      // Too low? lower CPU
+      val desiredCpus = (availableMem.toDouble / minMBPerCore.toDouble).toInt
+      if(desiredCpus <= 0) {
+        logTrace(s"Weird double rounding problem. memory/cpu ratio too close to threshold")
+        None
+      } else {
+        logTrace(s"Not enough memory per cpu, lowering cpu count to $desiredCpus")
+        Option((desiredCpus, availableMem + memoryOverhead, availableMem))
+      }
+    } else {
+      logTrace(s"Cpu and memory just right")
+      Option((availableCpus, availableMem + memoryOverhead, availableMem))
+    }
   }
 
   override def slaveLost(d: SchedulerDriver, slaveId: SlaveID): Unit = {
