@@ -148,11 +148,6 @@ private[spark] class CoarseMesosSchedulerBackend(
   }
 
   def createCommand(offer: Offer, numCores: Int, heapMem: Int, taskId: Int): CommandInfo = {
-    val executorSparkHome = conf.getOption("spark.mesos.executor.home")
-      .orElse(sc.getSparkHome())
-      .getOrElse {
-        throw new SparkException("Executor Spark home `spark.mesos.executor.home` is not set!")
-      }
     val environment = Environment.newBuilder()
     val extraClassPath = conf.getOption("spark.executor.extraClassPath")
     extraClassPath.foreach { cp =>
@@ -192,6 +187,11 @@ private[spark] class CoarseMesosSchedulerBackend(
       .orElse(Option(System.getenv("SPARK_EXECUTOR_URI")))
 
     if (uri.isEmpty) {
+      val executorSparkHome = conf.getOption("spark.mesos.executor.home")
+        .orElse(sc.getSparkHome())
+        .getOrElse {
+          throw new SparkException("Executor Spark home `spark.mesos.executor.home` is not set!")
+        }
       val runScript = new File(executorSparkHome, "./bin/spark-class").getCanonicalPath
       command.setValue(
         "%s \"%s\" org.apache.spark.executor.CoarseGrainedExecutorBackend"
