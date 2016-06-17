@@ -127,6 +127,21 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
     assert(cpus == offerCores)
   }
 
+  test("mesos does not acquire more ports than spark.mesos.coarse.executor.portProperties") {
+    val maxCores = 4
+    setBackend(Map("spark.mesos.coarse.executor.portProperties" -> "prop1,prop2"))
+
+    val executorMemory = backend.executorMemory(sc)
+    val ports = Seq(1 to 100)
+    offerResourcesWithPorts(List((executorMemory, maxCores, ports)))
+
+    val taskInfos = verifyTaskLaunched("o1")
+    assert(taskInfos.size() == 1)
+
+    val actualPorts = backend.getRange(taskInfos.iterator().next().getResourcesList, "ports")
+    assert(actualPorts == (1 to 2))
+  }
+
   test("mesos does not acquire more than spark.cores.max") {
     val maxCores = 10
     setBackend(Map("spark.cores.max" -> maxCores.toString))
@@ -263,8 +278,13 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
   }
 
   private def offerResources(offers: List[(Int, Int)], startId: Int = 1): Unit = {
+    offerResourcesWithPorts(offers.map(o => (o._1, o._2, Seq())), startId)
+  }
+
+  private def offerResourcesWithPorts(offers: List[(Int, Int, Seq[IndexedSeq[Int]])],
+                             startId: Int = 1): Unit = {
     val mesosOffers = offers.zipWithIndex.map {case (offer, i) =>
-      createOffer(s"o${i + startId}", s"s${i + startId}", offer._1, offer._2)}
+      createOffer(s"o${i + startId}", s"s${i + startId}", offer._1, offer._2, offer._3)}
 
     backend.resourceOffers(driver, mesosOffers.asJava)
   }
@@ -302,7 +322,11 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
     TaskID.newBuilder().setValue(taskId).build()
   }
 
-  private def createOffer(offerId: String, slaveId: String, mem: Int, cpu: Int): Offer = {
+  private def createOffer(offerId: String,
+                          slaveId: String,
+                          mem: Int,
+                          cpu: Int,
+                          ports: Seq[IndexedSeq[Int]] = Seq()): Offer = {
     val builder = Offer.newBuilder()
     builder.addResourcesBuilder()
       .setName("mem")
@@ -312,12 +336,34 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
       .setName("cpus")
       .setType(Value.Type.SCALAR)
       .setScalar(Scalar.newBuilder().setValue(cpu))
+    if(ports.nonEmpty) {
+      builder
+        .addResourcesBuilder()
+        .setRanges(Value.Ranges
+          .newBuilder()
+          .addAllRange(rangesToRanges(ports).asJava)
+          .build())
+        .setName("ports")
+        .setType(Value.Type.RANGES)
+        .build()
+    }
     builder.setId(createOfferId(offerId))
       .setFrameworkId(FrameworkID.newBuilder()
         .setValue("f1"))
       .setSlaveId(SlaveID.newBuilder().setValue(slaveId))
       .setHostname(s"host${slaveId}")
       .build()
+  }
+
+  // the IndexedSeq should be a Range by 1
+  private def rangesToRanges(ranges: Seq[IndexedSeq[Int]]): Seq[Value.Range] = {
+    ranges map {
+      r => Value.Range
+        .newBuilder()
+        .setBegin(r.head)
+        .setEnd(r.head + r.size - 1)
+        .build()
+    }
   }
 
   private def createSchedulerBackend(

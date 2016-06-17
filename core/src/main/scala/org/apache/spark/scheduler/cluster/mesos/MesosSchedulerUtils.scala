@@ -146,6 +146,13 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
     res.asScala.filter(_.getName == name).map(_.getScalar.getValue).sum
   }
 
+  def getRange(res: JList[Resource], name: String): Seq[Long] = {
+    res.asScala
+      .filter(_.getName == name)
+      .flatMap(_.getRanges.getRangeList.asScala.map(r => r.getBegin to r.getEnd))
+      .foldLeft(IndexedSeq[Long]())(_ ++ _)
+  }
+
   /**
    * Signal that the scheduler has registered with Mesos.
    */
@@ -163,9 +170,15 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
       .setType(Value.Type.SCALAR)
       .setScalar(Value.Scalar.newBuilder().setValue(amount).build())
 
-    role.foreach { r => builder.setRole(r) }
+    role.foreach { builder.setRole }
 
     builder.build()
+  }
+
+  def partitionRangeResource(resources: JList[Resource],
+                             resoureName: String,
+                             ammountToUse: Seq[Int]): (List[Resource], List[Resource]) = {
+
   }
 
   /**

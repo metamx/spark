@@ -17,8 +17,11 @@
 
 package org.apache.spark.scheduler.cluster.mesos
 
+import java.util
+
 import scala.language.reflectiveCalls
 
+import org.apache.mesos.Protos
 import org.apache.mesos.Protos.Value
 import org.mockito.Mockito._
 import org.scalatest._
@@ -140,4 +143,24 @@ class MesosSchedulerUtilsSuite extends SparkFunSuite with Matchers with MockitoS
     utils.matchesAttributeRequirements(falseConstraint, offerAttribs) shouldBe false
   }
 
+  test("ranges concatenate properly") {
+    assert(((1 to 3) ++ (5 to 7)).length == 6)
+    assert(((1 until 3) ++ (5 until 7)).length == 4)
+  }
+
+  test("mesos ranges parse into ranges") {
+    val resourceName = "some_resource"
+    val range1 = Value.Range.newBuilder().setBegin(1).setEnd(3).build()
+    val range2 = Value.Range.newBuilder().setBegin(5).setEnd(7).build()
+    val ranges = Value.Ranges.newBuilder().addRange(range1).addRange(range2).build()
+    val resource = Protos.Resource
+      .newBuilder()
+      .setName(resourceName)
+      .setRanges(ranges)
+      .setType(Protos.Value.Type.RANGES)
+      .build()
+    // Ranges are inclusive
+    assert(((1 to 3) ++ (5 to 7)) ==
+      utils.getRange(util.Arrays.asList(resource), resourceName))
+  }
 }
