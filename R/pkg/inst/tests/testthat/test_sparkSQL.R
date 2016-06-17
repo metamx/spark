@@ -443,22 +443,21 @@ test_that("jsonRDD() on a RDD with json string", {
   expect_equal(count(df), 6)
 })
 
-test_that("test cache, uncache and clearCache", {
-  df <- read.json(jsonPath)
-  createOrReplaceTempView(df, "table1")
-  cacheTable("table1")
-  uncacheTable("table1")
-  clearCache()
-  dropTempTable("table1")
-})
-
 test_that("test tableNames and tables", {
   df <- read.json(jsonPath)
   createOrReplaceTempView(df, "table1")
   expect_equal(length(tableNames()), 1)
-  df <- tables()
-  expect_equal(count(df), 1)
+  tables <- tables()
+  expect_equal(count(tables), 1)
+
+  suppressWarnings(registerTempTable(df, "table2"))
+  tables <- tables()
+  expect_equal(count(tables), 2)
   dropTempTable("table1")
+  dropTempTable("table2")
+
+  tables <- tables()
+  expect_equal(count(tables), 0)
 })
 
 test_that(
@@ -468,6 +467,15 @@ test_that(
   newdf <- sql("SELECT * FROM table1 where name = 'Michael'")
   expect_is(newdf, "SparkDataFrame")
   expect_equal(count(newdf), 1)
+  dropTempTable("table1")
+})
+
+test_that("test cache, uncache and clearCache", {
+  df <- read.json(jsonPath)
+  createOrReplaceTempView(df, "table1")
+  cacheTable("table1")
+  uncacheTable("table1")
+  clearCache()
   dropTempTable("table1")
 })
 
@@ -789,6 +797,14 @@ test_that("distinct(), unique() and dropDuplicates() on DataFrames", {
     expected)
 
   result <- collect(dropDuplicates(df, c("key", "value1")))
+  expected <- rbind.data.frame(
+    c(1, 1, 1), c(1, 2, 1), c(2, 1, 2), c(2, 2, 2))
+  names(expected) <- c("key", "value1", "value2")
+  expect_equivalent(
+    result[order(result$key, result$value1, result$value2), ],
+    expected)
+
+  result <- collect(dropDuplicates(df, "key", "value1"))
   expected <- rbind.data.frame(
     c(1, 1, 1), c(1, 2, 1), c(2, 1, 2), c(2, 2, 2))
   names(expected) <- c("key", "value1", "value2")
@@ -2262,6 +2278,24 @@ test_that("createDataFrame sqlContext parameter backward compatibility", {
   before <- suppressWarnings(createDataFrame(sqlContext, iris))
   after <- suppressWarnings(createDataFrame(iris))
   expect_equal(collect(before), collect(after))
+})
+
+test_that("randomSplit", {
+  num <- 4000
+  df <- createDataFrame(data.frame(id = 1:num))
+
+  weights <- c(2, 3, 5)
+  df_list <- randomSplit(df, weights)
+  expect_equal(length(weights), length(df_list))
+  counts <- sapply(df_list, count)
+  expect_equal(num, sum(counts))
+  expect_true(all(sapply(abs(counts / num - weights / sum(weights)), function(e) { e < 0.05 })))
+
+  df_list <- randomSplit(df, weights, 0)
+  expect_equal(length(weights), length(df_list))
+  counts <- sapply(df_list, count)
+  expect_equal(num, sum(counts))
+  expect_true(all(sapply(abs(counts / num - weights / sum(weights)), function(e) { e < 0.05 })))
 })
 
 unlink(parquetPath)
