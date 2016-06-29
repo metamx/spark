@@ -170,6 +170,34 @@ class DataFrameReaderWriterSuite extends QueryTest with SharedSQLContext with Be
     assert(LastOptions.saveMode === SaveMode.ErrorIfExists)
   }
 
+  test("test path option in load") {
+    spark.read
+      .format("org.apache.spark.sql.test")
+      .option("intOpt", 56)
+      .load("/test")
+
+    assert(LastOptions.parameters("intOpt") == "56")
+    assert(LastOptions.parameters("path") == "/test")
+
+    LastOptions.clear()
+    spark.read
+      .format("org.apache.spark.sql.test")
+      .option("intOpt", 55)
+      .load()
+
+    assert(LastOptions.parameters("intOpt") == "55")
+    assert(!LastOptions.parameters.contains("path"))
+
+    LastOptions.clear()
+    spark.read
+      .format("org.apache.spark.sql.test")
+      .option("intOpt", 54)
+      .load("/test", "/test1", "/test2")
+
+    assert(LastOptions.parameters("intOpt") == "54")
+    assert(!LastOptions.parameters.contains("path"))
+  }
+
   test("test different data types for options") {
     val df = spark.read
       .format("org.apache.spark.sql.test")
@@ -218,8 +246,9 @@ class DataFrameReaderWriterSuite extends QueryTest with SharedSQLContext with Be
         spark.range(10).write.format("parquet").mode("overwrite").partitionBy("id").save(path)
       }
       intercept[AnalysisException] {
-        spark.range(10).write.format("orc").mode("overwrite").partitionBy("id").save(path)
+        spark.range(10).write.format("csv").mode("overwrite").partitionBy("id").save(path)
       }
+      spark.emptyDataFrame.write.format("parquet").mode("overwrite").save(path)
     }
   }
 
