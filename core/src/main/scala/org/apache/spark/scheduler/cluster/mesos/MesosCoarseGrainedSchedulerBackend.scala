@@ -424,6 +424,10 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
             val (resourcesLeft, memResourcesToUse) =
               partitionResources(afterCPUResources.asJava, "mem", taskMemory)
 
+            val portJavaOptions: Seq[String] = portProperties
+              .zip(taskPorts)
+              .map({ case (s: String, i: Int) => s.format(i) })
+
             val taskBuilder = MesosTaskInfo.newBuilder()
               .setTaskId(TaskID.newBuilder().setValue(taskId.toString).build())
               .setSlaveId(offer.getSlaveId)
@@ -431,7 +435,23 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
               .setName("Task " + taskId)
               .addAllResources(cpuResourcesToUse.asJava)
               .addAllResources(memResourcesToUse.asJava)
-              .addAllResources()
+            if (portProperties.length > 0) {
+              taskBuilder.addAllResources(
+                Collections.singletonList(Resource
+                  .newBuilder()
+                  .setType(Value.Type.RANGES)
+                  .setName("ports")
+                  .setRanges(taskPorts.map(
+                    p => Value.Range
+                      .newBuilder()
+                      .setBegin(p)
+                      .setEnd(p)
+                      .build()
+                  ).foldLeft(Value.Ranges.newBuilder())(_.addRange(_)).build()
+                  ).build()
+                )
+              )
+            }
 
             sc.conf.getOption("spark.mesos.executor.docker.image").foreach { image =>
               MesosSchedulerBackendUtil

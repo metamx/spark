@@ -175,12 +175,6 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
     builder.build()
   }
 
-  def partitionRangeResource(resources: JList[Resource],
-                             resoureName: String,
-                             ammountToUse: Seq[Int]): (List[Resource], List[Resource]) = {
-
-  }
-
   /**
    * Partition the existing set of resources into two groups, those remaining to be
    * scheduled and those requested to be used for a new task.
