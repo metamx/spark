@@ -19,6 +19,7 @@ package org.apache.spark.scheduler.cluster.mesos
 
 import java.util
 
+import scala.collection.JavaConverters._
 import scala.language.reflectiveCalls
 
 import org.apache.mesos.Protos
@@ -161,6 +162,90 @@ class MesosSchedulerUtilsSuite extends SparkFunSuite with Matchers with MockitoS
       .build()
     // Ranges are inclusive
     assert(((1 to 3) ++ (5 to 7)) ==
-      utils.getRange(util.Arrays.asList(resource), resourceName))
+      utils.getRanges(util.Arrays.asList(resource), resourceName))
+  }
+
+  test("mesos int sequence properly becomes range") {
+    val range1 = 1 to 3
+    assert(utils.intSeqToRanges(range1) == Seq(range1))
+    assert(utils.intSeqToRanges(Seq(1, 2, 3)) == Seq(range1))
+    assert(utils.intSeqToRanges(Seq(3, 2, 1)) == Seq(range1))
+    assert(utils.intSeqToRanges(Seq(1, 2, 3, 5, 6)) == Seq(1 to 3, 5 to 6))
+    assert(utils.intSeqToRanges(Seq(1, 6, 3, 5, 2)) == Seq(1 to 3, 5 to 6))
+  }
+
+  test("mesos range partitioner works") {
+    val resourceName = "rangedResource"
+    val offerRangeResource = Protos.Resource.newBuilder()
+      .setName(resourceName)
+      .setType(Protos.Value.Type.RANGES)
+      .setRanges(Protos.Value.Ranges.newBuilder()
+          .addRange(Protos.Value.Range.newBuilder()
+              .setBegin(10)
+              .setEnd(13)
+          )
+      ).build()
+    val lowOfferRangeResource = Protos.Resource.newBuilder()
+      .setName(resourceName)
+      .setType(Protos.Value.Type.RANGES)
+      .setRanges(Protos.Value.Ranges.newBuilder()
+        .addRange(Protos.Value.Range.newBuilder()
+          .setBegin(1)
+          .setEnd(3)
+        )
+      ).build()
+    val highOfferRangeResource = Protos.Resource.newBuilder()
+      .setName(resourceName)
+      .setType(Protos.Value.Type.RANGES)
+      .setRanges(Protos.Value.Ranges.newBuilder()
+        .addRange(Protos.Value.Range.newBuilder()
+          .setBegin(21)
+          .setEnd(23)
+        )
+      ).build()
+
+    utils.partitionRangeResources(List(offerRangeResource).asJava, resourceName, 10 to 13) match {
+      case (unused, used) =>
+        assert(used.head.getRanges.getRangeCount == 1)
+        assert(used.head.getRanges.getRange(0).getBegin == 10)
+        assert(used.head.getRanges.getRange(0).getEnd == 13)
+        assert(unused.isEmpty)
+    }
+
+    utils.partitionRangeResources(List(offerRangeResource).asJava, resourceName, 10 to 12) match {
+      case (unused, used) =>
+        assert(used.head.getRanges.getRangeCount == 1)
+        assert(unused.head.getRanges.getRangeCount == 1)
+        assert(used.head.getRanges.getRange(0).getBegin == 10)
+        assert(used.head.getRanges.getRange(0).getEnd == 12)
+        assert(unused.head.getRanges.getRange(0).getBegin == 13)
+        assert(unused.head.getRanges.getRange(0).getEnd == 13)
+    }
+
+    utils.partitionRangeResources(
+      List(offerRangeResource, lowOfferRangeResource, highOfferRangeResource
+      ).asJava, resourceName, 10 to 12) match {
+      case (unused, used) =>
+        assert(used.head.getRanges.getRangeCount == 1)
+        assert(unused.head.getRanges.getRangeCount == 3)
+        assert(used.head.getRanges.getRange(0).getBegin == 10)
+        assert(used.head.getRanges.getRange(0).getEnd == 12)
+        assert(unused.head.getRanges.getRangeList.asScala.map(MesosRange.mesosRangeToRange) ==
+          Seq(1 to 3, 13 to 13, 21 to 23))
+    }
+
+    utils.partitionRangeResources(
+      List(offerRangeResource, lowOfferRangeResource, highOfferRangeResource
+      ).asJava, resourceName, Seq(13, 21)) match {
+      case (unused, used) =>
+        assert(used.head.getRanges.getRangeCount == 2)
+        assert(unused.head.getRanges.getRangeCount == 3)
+        assert(used.head.getRanges.getRange(0).getBegin == 13)
+        assert(used.head.getRanges.getRange(0).getEnd == 13)
+        assert(used.head.getRanges.getRange(1).getBegin == 21)
+        assert(used.head.getRanges.getRange(1).getEnd == 21)
+        assert(unused.head.getRanges.getRangeList.asScala.map(MesosRange.mesosRangeToRange) ==
+          Seq(1 to 3, 11 to 12, 22 to 23))
+    }
   }
 }

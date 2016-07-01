@@ -46,7 +46,8 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
 
   /**
    * Creates a new MesosSchedulerDriver that communicates to the Mesos master.
-   * @param masterUrl The url to connect to Mesos master
+    *
+    * @param masterUrl The url to connect to Mesos master
    * @param scheduler the scheduler class to receive scheduler callbacks
    * @param sparkUser User to impersonate with when running tasks
    * @param appName The framework name to display on the Mesos UI
@@ -146,11 +147,11 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
     res.asScala.filter(_.getName == name).map(_.getScalar.getValue).sum
   }
 
-  def getRange(res: JList[Resource], name: String): Seq[Long] = {
+  def getRanges(res: JList[Resource], name: String): Seq[Range] = {
     res.asScala
       .filter(_.getName == name)
-      .flatMap(_.getRanges.getRangeList.asScala.map(r => r.getBegin to r.getEnd))
-      .foldLeft(IndexedSeq[Long]())(_ ++ _)
+      .filter(_.hasRanges)
+      .flatMap(_.getRanges.getRangeList.asScala.map(MesosRange.mesosRangeToRange))
   }
 
   /**
@@ -178,7 +179,8 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
   /**
    * Partition the existing set of resources into two groups, those remaining to be
    * scheduled and those requested to be used for a new task.
-   * @param resources The full list of available resources
+    *
+    * @param resources The full list of available resources
    * @param resourceName The name of the resource to take from the available resources
    * @param amountToUse The amount of resources to take from the available resources
    * @return The remaining resources list and the used resources list.
@@ -211,6 +213,104 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
     (filteredResources.toList, requestedResources.toList)
   }
 
+  def partitionRangeResources(
+    resources: JList[Resource],
+     resourceName: String,
+     used: Seq[Int]
+   ): (Seq[Resource], Seq[Resource]) = {
+    val usedRanges = intSeqToRanges(used)
+    val usedIt = usedRanges.iterator
+    var usedVal = Range(0, 0, 1)
+
+    resources.asScala.toSeq.partition(x => resourceName.equals(x.getName) && x.hasRanges) match {
+      case (named: Seq[Resource], unnamed: Seq[Resource]) =>
+        val consumedAndRemaining = named.map {
+          resource: Resource =>
+            val rangeIt: Iterator[Range] = resource.getRanges.getRangeList
+              .asScala.map(MesosRange.mesosRangeToRange).sortBy(_.start).iterator
+            // Ranges should not overlap at this point
+            var consumed: Seq[Range] = Seq()
+            var remaining: Seq[Range] = Seq()
+            var activeRange = Range(0, 0, 1)
+            while ((usedIt.hasNext || !usedVal.isEmpty)
+              && (rangeIt.hasNext || !activeRange.isEmpty)) {
+              if (activeRange.isEmpty) {
+                activeRange = rangeIt.next()
+              }
+              if (usedVal.isEmpty) {
+                usedVal = usedIt.next()
+              }
+
+              if (activeRange.start <= usedVal.start && activeRange.end >= usedVal.start) {
+                val (beforeStart, afterStart) = activeRange.span(_ < usedVal.start)
+                if (!beforeStart.isEmpty) {
+                  remaining ++= Seq(beforeStart)
+                }
+                val (common, afterEnd) = afterStart.span(usedVal.contains)
+                if (!common.isEmpty) {
+                  consumed ++= Seq(common)
+                  val (_, newUsedVal) = usedVal.span(_ <= common.end)
+                  usedVal = newUsedVal
+                }
+                activeRange = afterEnd
+              }
+            }
+            if (!activeRange.isEmpty) {
+              // Collect remnant from current range
+              remaining ++= Seq(activeRange)
+            }
+            if (usedVal.isEmpty) {
+              // Collect remnant ranges from current offer
+              remaining ++= rangeIt
+            }
+            (consumed, remaining)
+        }
+        val unusedResources = Resource.newBuilder()
+          .setType(Value.Type.RANGES)
+          .setName(resourceName)
+          .setRanges(Value.Ranges
+            .newBuilder()
+            .addAllRange(consumedAndRemaining.flatMap(_._2).sortBy(_.start)
+              .map(MesosRange.rangeToMesosRange).asJava)
+          ).build()
+        val usedResources = Seq(Resource.newBuilder()
+          .setType(Value.Type.RANGES)
+          .setName(resourceName)
+          .setRanges(Value.Ranges.newBuilder()
+            .addAllRange(consumedAndRemaining.flatMap(_._1).sortBy(_.start)
+              .map(MesosRange.rangeToMesosRange).asJava)
+          ).build())
+
+        var mutableUnnamed = unnamed
+        if (unusedResources.getRanges.getRangeCount > 0) {
+          mutableUnnamed ++= Seq(unusedResources)
+        }
+
+        (mutableUnnamed, usedResources)
+    }
+  }
+
+  def intSeqToRanges(ints: Seq[Int]): Seq[Range] = {
+    val intIt = ints.sorted.iterator
+    var ranges: Seq[Range] = Seq()
+    var currentRange: Option[Range] = None
+    while(intIt.hasNext) {
+      val nextInt = intIt.next()
+      currentRange = currentRange match {
+        case Some(range) =>
+          if (nextInt == range.end +1) {
+            Option(Range.inclusive(range.start, nextInt, 1))
+          } else {
+            ranges ++= Seq(range)
+            Option(Range.inclusive(nextInt, nextInt, 1))
+          }
+        case None =>
+          Option(Range.inclusive(nextInt, nextInt, 1))
+      }
+    }
+    ranges ++ currentRange
+  }
+
   /** Helper method to get the key,value-set pair for a Mesos Attribute protobuf */
   protected def getAttribute(attr: Attribute): (String, Set[String]) = {
     (attr.getName, attr.getText.getValue.split(',').toSet)
@@ -229,7 +329,8 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
   /**
    * Converts the attributes from the resource offer into a Map of name -> Attribute Value
    * The attribute values are the mesos attribute types and they are
-   * @param offerAttributes
+    *
+    * @param offerAttributes
    * @return
    */
   protected def toAttributeMap(offerAttributes: JList[Attribute]): Map[String, GeneratedMessage] = {
@@ -264,7 +365,7 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
             // check if provided values is less than equal to the offered values
             requiredValues.map(_.toDouble).exists(_ <= scalarValue.getValue)
           case Some(rangeValue: Value.Range) =>
-            val offerRange = rangeValue.getBegin to rangeValue.getEnd
+            val offerRange = MesosRange.mesosRangeToRange(rangeValue)
             // Check if there is some required value that is between the ranges specified
             // Note: We only support the ability to specify discrete values, in the future
             // we may expand it to subsume ranges specified with a XX..YY value or something
@@ -339,7 +440,8 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
   /**
    * Return the amount of memory to allocate to each executor, taking into account
    * container overheads.
-   * @param sc SparkContext to use to get `spark.mesos.executor.memoryOverhead` value
+    *
+    * @param sc SparkContext to use to get `spark.mesos.executor.memoryOverhead` value
    * @return memory requirement as (0.1 * <memoryOverhead>) or MEMORY_OVERHEAD_MINIMUM
    *         (whichever is larger)
    */
@@ -363,4 +465,21 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
     sc.conf.getTimeAsSeconds("spark.mesos.rejectOfferDurationForReachedMaxCores", "120s")
   }
 
+}
+
+object MesosRange {
+  implicit def mesosRangeToRange(x: Value.Range): Range = {
+    Range.inclusive(x.getBegin.toInt, x.getEnd.toInt, 1)
+  }
+
+  implicit def rangeToMesosRange(x: Range): Value.Range = {
+    if (x.step != 1) {
+      throw new IllegalArgumentException(s"Step must be 1; cannot be ${x.step}")
+    }
+    Value.Range
+      .newBuilder()
+      .setBegin(x.start)
+      .setEnd(x.end)
+      .build()
+  }
 }

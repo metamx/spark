@@ -389,14 +389,14 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
         val availableResources = remainingResources(offerId)
         val offerMem = getResource(availableResources, "mem")
         val offerCpu = getResource(availableResources, "cpus")
-        val offerPorts = getRange(availableResources, "ports")
+        val offerPorts = getRanges(availableResources, "ports")
 
         // Catch offer limits
         calculateUsableResources(
           sc,
           offerCpu.toInt,
           offerMem.toInt,
-          offerPorts.map(_.toInt)
+          offerPorts.flatten
         ) flatMap {
           // Catch "global" limits
           case (taskCPUs: Int, taskMemory: Int, taskPorts: Seq[Int]) =>
@@ -421,8 +421,9 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
 
             val (afterCPUResources, cpuResourcesToUse) =
               partitionResources(availableResources, "cpus", taskCPUs)
-            val (resourcesLeft, memResourcesToUse) =
+            val (afterMemResources, memResourcesToUse) =
               partitionResources(afterCPUResources.asJava, "mem", taskMemory)
+            val resourcesLeft = afterMemResources
 
             val portJavaOptions: Seq[String] = portProperties
               .zip(taskPorts)

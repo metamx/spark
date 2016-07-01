@@ -138,7 +138,7 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
     val taskInfos = verifyTaskLaunched("o1")
     assert(taskInfos.size() == 1)
 
-    val actualPorts = backend.getRange(taskInfos.iterator().next().getResourcesList, "ports")
+    val actualPorts = backend.getRanges(taskInfos.iterator().next().getResourcesList, "ports")
     assert(actualPorts == (1 to 2))
   }
 
