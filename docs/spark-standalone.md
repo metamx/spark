@@ -185,6 +185,15 @@ SPARK_MASTER_OPTS supports the following system properties:
   </td>
 </tr>
 <tr>
+  <td><code>spark.deploy.sortWorkersDescending</code></td>
+  <td>true</td>
+  <td>
+    Whether the standalone cluster manager should start assigning cores to workers from the one that has
+    the largest number of cores available. Setting it as <code>false</code> will allow applications to be
+    consolidated onto as few nodes as possible when <code>spark.deploy.spreadOut</code> is also <code>false</code> <br/>
+  </td>
+</tr>
+<tr>
   <td><code>spark.deploy.defaultCores</code></td>
   <td>(infinite)</td>
   <td>
