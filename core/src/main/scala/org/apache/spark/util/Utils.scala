@@ -557,48 +557,56 @@ private[spark] object Utils extends Logging {
       conf: SparkConf,
       securityMgr: SecurityManager,
       hadoopConf: Configuration) {
-    val targetFile = new File(targetDir, filename)
-    val uri = new URI(url)
-    val fileOverwrite = conf.getBoolean("spark.files.overwrite", defaultValue = false)
-    Option(uri.getScheme).getOrElse("file") match {
-      case "spark" =>
-        if (SparkEnv.get == null) {
-          throw new IllegalStateException(
-            "Cannot retrieve files with 'spark' scheme without an active SparkEnv.")
-        }
-        val source = SparkEnv.get.rpcEnv.openChannel(url)
-        val is = Channels.newInputStream(source)
-        downloadFile(url, is, targetFile, fileOverwrite)
-      case "http" | "https" | "ftp" =>
-        var uc: URLConnection = null
-        if (securityMgr.isAuthenticationEnabled()) {
-          logDebug("fetchFile with security enabled")
-          val newuri = constructURIForAuthentication(uri, securityMgr)
-          uc = newuri.toURL().openConnection()
-          uc.setAllowUserInteraction(false)
-        } else {
-          logDebug("fetchFile not using security")
-          uc = new URL(url).openConnection()
-        }
-        Utils.setupSecureURLConnection(uc, securityMgr)
+    try {
+      val targetFile = new File(targetDir, filename)
+      val uri = new URI(url)
+      val fileOverwrite = conf.getBoolean("spark.files.overwrite", defaultValue = false)
+      Option(uri.getScheme).getOrElse("file") match {
+        case "spark" =>
+          if (SparkEnv.get == null) {
+            throw new IllegalStateException(
+              "Cannot retrieve files with 'spark' scheme without an active SparkEnv."
+            )
+          }
+          val source = SparkEnv.get.rpcEnv.openChannel(url)
+          val is = Channels.newInputStream(source)
+          downloadFile(url, is, targetFile, fileOverwrite)
+        case "http" | "https" | "ftp" =>
+          var uc: URLConnection = null
+          if (securityMgr.isAuthenticationEnabled()) {
+            logDebug("fetchFile with security enabled")
+            val newuri = constructURIForAuthentication(uri, securityMgr)
+            uc = newuri.toURL().openConnection()
+            uc.setAllowUserInteraction(false)
+          } else {
+            logDebug("fetchFile not using security")
+            uc = new URL(url).openConnection()
+          }
+          Utils.setupSecureURLConnection(uc, securityMgr)
 
-        val timeoutMs =
-          conf.getTimeAsSeconds("spark.files.fetchTimeout", "60s").toInt * 1000
-        uc.setConnectTimeout(timeoutMs)
-        uc.setReadTimeout(timeoutMs)
-        uc.connect()
-        val in = uc.getInputStream()
-        downloadFile(url, in, targetFile, fileOverwrite)
-      case "file" =>
-        // In the case of a local file, copy the local file to the target directory.
-        // Note the difference between uri vs url.
-        val sourceFile = if (uri.isAbsolute) new File(uri) else new File(url)
-        copyFile(url, sourceFile, targetFile, fileOverwrite)
-      case _ =>
-        val fs = getHadoopFileSystem(uri, hadoopConf)
-        val path = new Path(uri)
-        fetchHcfsFile(path, targetDir, fs, conf, hadoopConf, fileOverwrite,
-                      filename = Some(filename))
+          val timeoutMs =
+            conf.getTimeAsSeconds("spark.files.fetchTimeout", "60s").toInt * 1000
+          uc.setConnectTimeout(timeoutMs)
+          uc.setReadTimeout(timeoutMs)
+          uc.connect()
+          val in = uc.getInputStream()
+          downloadFile(url, in, targetFile, fileOverwrite)
+        case "file" =>
+          // In the case of a local file, copy the local file to the target directory.
+          // Note the difference between uri vs url.
+          val sourceFile = if (uri.isAbsolute) new File(uri) else new File(url)
+          copyFile(url, sourceFile, targetFile, fileOverwrite)
+        case _ =>
+          val fs = getHadoopFileSystem(uri, hadoopConf)
+          val path = new Path(uri)
+          fetchHcfsFile(
+            path, targetDir, fs, conf, hadoopConf, fileOverwrite,
+            filename = Some(filename)
+          )
+      }
+    } catch {
+      case NonFatal(t) => throw new IllegalStateException(
+        s"Unable to fetch file <$url> into <$targetDir> / <$filename>", t)
     }
   }
 
