@@ -111,10 +111,10 @@ private[deploy] class Master(
   // among all the nodes) instead of trying to consolidate each app onto a small # of nodes.
   private val spreadOutApps = conf.getBoolean("spark.deploy.spreadOut", true)
 
-  // Sort usable workers by percentage of free cores in a descending manner. You can set it as false
-  // if you want your apps to be consolidated onto as few nodes as possible.
-  // With this config as true, each app will be consolidated onto a small # of nodes but the entire
-  // set of apps will be spread out into all worker nodes available.
+  // Sort usable workers by free cores in a descending manner. You can set it as false if you want
+  // your apps to be consolidated onto as few nodes as possible. With this config as true, each app
+  // will be consolidated onto a small # of nodes but the entire set of apps will be spread out into
+  // all worker nodes available.
   private val sortWorkersDescending = conf.getBoolean("spark.deploy.sortWorkersDescending", true)
 
 
@@ -659,9 +659,7 @@ private[deploy] class Master(
       val usableWorkers = workers.toArray.filter(_.state == WorkerState.ALIVE)
         .filter(worker => worker.memoryFree >= app.desc.memoryPerExecutorMB &&
           worker.coresFree >= coresPerExecutor.getOrElse(1))
-        .sortWith { (l, r) =>
-          (l.coresFree.toFloat / l.cores) < (r.coresFree.toFloat / r.cores)
-        }
+        .sortBy(_.coresFree)
       val usableWorkersSorted = if (sortWorkersDescending) usableWorkers.reverse else usableWorkers
       val assignedCores = scheduleExecutorsOnWorkers(app, usableWorkersSorted, spreadOutApps)
 
