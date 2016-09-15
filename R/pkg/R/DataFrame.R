@@ -205,9 +205,9 @@ setMethod("showDF",
 
 #' show
 #'
-#' Print the SparkDataFrame column names and types
+#' Print class and type information of a Spark object.
 #'
-#' @param object a SparkDataFrame.
+#' @param object a Spark object. Can be a SparkDataFrame, Column, GroupedData, WindowSpec.
 #'
 #' @family SparkDataFrame functions
 #' @rdname show
@@ -390,7 +390,11 @@ setMethod("coltypes",
                 }
 
                 if (is.null(type)) {
-                  stop(paste("Unsupported data type: ", x))
+                  specialtype <- specialtypeshandle(x)
+                  if (is.null(specialtype)) {
+                    stop(paste("Unsupported data type: ", x))
+                  }
+                  type <- PRIMITIVE_TYPES[[specialtype]]
                 }
               }
               type
@@ -1056,6 +1060,13 @@ setMethod("collect",
                   df[[colIndex]] <- col
                 } else {
                   colType <- dtypes[[colIndex]][[2]]
+                  if (is.null(PRIMITIVE_TYPES[[colType]])) {
+                    specialtype <- specialtypeshandle(colType)
+                    if (!is.null(specialtype)) {
+                      colType <- specialtype
+                    }
+                  }
+
                   # Note that "binary" columns behave like complex types.
                   if (!is.null(PRIMITIVE_TYPES[[colType]]) && colType != "binary") {
                     vec <- do.call(c, col)
@@ -2617,6 +2628,7 @@ setMethod("write.df",
             write <- callJMethod(df@sdf, "write")
             write <- callJMethod(write, "format", source)
             write <- callJMethod(write, "mode", jmode)
+            write <- callJMethod(write, "options", options)
             write <- callJMethod(write, "save", path)
           })
 

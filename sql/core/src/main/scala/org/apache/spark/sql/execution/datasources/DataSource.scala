@@ -30,6 +30,7 @@ import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
+import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.execution.datasources.csv.CSVFileFormat
 import org.apache.spark.sql.execution.datasources.jdbc.JdbcRelationProvider
 import org.apache.spark.sql.execution.datasources.json.JsonFileFormat
@@ -140,12 +141,13 @@ case class DataSource(
                 } else if (provider.toLowerCase == "avro" ||
                   provider == "com.databricks.spark.avro") {
                   throw new AnalysisException(
-                    s"Failed to find data source: ${provider.toLowerCase}. Please use Spark " +
-                      "package http://spark-packages.org/package/databricks/spark-avro")
+                    s"Failed to find data source: ${provider.toLowerCase}. Please find an Avro " +
+                      "package at " +
+                      "https://cwiki.apache.org/confluence/display/SPARK/Third+Party+Projects")
                 } else {
                   throw new ClassNotFoundException(
                     s"Failed to find data source: $provider. Please find packages at " +
-                      "http://spark-packages.org",
+                      "https://cwiki.apache.org/confluence/display/SPARK/Third+Party+Projects",
                     error)
                 }
             }
@@ -349,13 +351,12 @@ case class DataSource(
         }
 
         HadoopFsRelation(
-          sparkSession,
           fileCatalog,
           partitionSchema = fileCatalog.partitionSpec().partitionColumns,
           dataSchema = dataSchema,
           bucketSpec = None,
           format,
-          options)
+          options)(sparkSession)
 
       // This is a non-streaming file based datasource.
       case (format: FileFormat, _) =>
@@ -413,13 +414,12 @@ case class DataSource(
         }
 
         HadoopFsRelation(
-          sparkSession,
           fileCatalog,
           partitionSchema = fileCatalog.partitionSpec().partitionColumns,
           dataSchema = dataSchema.asNullable,
           bucketSpec = bucketSpec,
           format,
-          caseInsensitiveOptions)
+          caseInsensitiveOptions)(sparkSession)
 
       case _ =>
         throw new AnalysisException(
@@ -484,13 +484,23 @@ case class DataSource(
           }
         }
 
+        // SPARK-17230: Resolve the partition columns so InsertIntoHadoopFsRelationCommand does
+        // not need to have the query as child, to avoid to analyze an optimized query,
+        // because InsertIntoHadoopFsRelationCommand will be optimized first.
+        val columns = partitionColumns.map { name =>
+          val plan = data.logicalPlan
+          plan.resolve(name :: Nil, data.sparkSession.sessionState.analyzer.resolver).getOrElse {
+            throw new AnalysisException(
+              s"Unable to resolve ${name} given [${plan.output.map(_.name).mkString(", ")}]")
+          }.asInstanceOf[Attribute]
+        }
         // For partitioned relation r, r.schema's column ordering can be different from the column
         // ordering of data.logicalPlan (partition columns are all moved after data column).  This
         // will be adjusted within InsertIntoHadoopFsRelation.
         val plan =
           InsertIntoHadoopFsRelationCommand(
             outputPath,
-            partitionColumns.map(UnresolvedAttribute.quoted),
+            columns,
             bucketSpec,
             format,
             () => Unit, // No existing table needs to be refreshed.
