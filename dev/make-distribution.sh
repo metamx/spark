@@ -150,7 +150,7 @@ export MAVEN_OPTS="${MAVEN_OPTS:--Xmx2g -XX:MaxPermSize=512M -XX:ReservedCodeCac
 # Store the command as an array because $MVN variable might have spaces in it.
 # Normal quoting tricks don't work.
 # See: http://mywiki.wooledge.org/BashFAQ/050
-BUILD_COMMAND=("$MVN" -T 1C -pl "!sql/core,!sql/hive,!sql/catalyst,!mllib,!mllib-local" clean package -DskipTests $@)
+BUILD_COMMAND=("$MVN" -T 1C -pl "!sql/core,!sql/hive,!sql/catalyst,!mllib,!mllib-local,!repl" clean package -DskipTests $@)
 
 # Actually build the jar
 echo -e "\nBuilding with..."
