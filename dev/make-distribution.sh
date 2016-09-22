@@ -174,20 +174,20 @@ if [ -f "$SPARK_HOME"/common/network-yarn/target/scala*/spark-*-yarn-shuffle.jar
 fi
 
 # Copy examples and dependencies
-mkdir -p "$DISTDIR/examples/jars"
-cp "$SPARK_HOME"/examples/target/scala*/jars/* "$DISTDIR/examples/jars"
+#mkdir -p "$DISTDIR/examples/jars"
+#cp "$SPARK_HOME"/examples/target/scala*/jars/* "$DISTDIR/examples/jars"
 
 # Deduplicate jars that have already been packaged as part of the main Spark dependencies.
-for f in "$DISTDIR/examples/jars/"*; do
-  name=$(basename "$f")
-  if [ -f "$DISTDIR/jars/$name" ]; then
-    rm "$DISTDIR/examples/jars/$name"
-  fi
-done
+#for f in "$DISTDIR/examples/jars/"*; do
+#  name=$(basename "$f")
+#  if [ -f "$DISTDIR/jars/$name" ]; then
+#    rm "$DISTDIR/examples/jars/$name"
+#  fi
+#done
 
 # Copy example sources (needed for python and SQL)
-mkdir -p "$DISTDIR/examples/src/main"
-cp -r "$SPARK_HOME"/examples/src/main "$DISTDIR/examples/src/"
+#mkdir -p "$DISTDIR/examples/src/main"
+#cp -r "$SPARK_HOME"/examples/src/main "$DISTDIR/examples/src/"
 
 # Copy license and ASF files
 cp "$SPARK_HOME/LICENSE" "$DISTDIR"
