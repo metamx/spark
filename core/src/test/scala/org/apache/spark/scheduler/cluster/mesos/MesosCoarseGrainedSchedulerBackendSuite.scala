@@ -176,6 +176,24 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
     verifyTaskLaunched(driver, "o2")
   }
 
+  test("mesos does not assign tasks round-robin on offers") {
+    val executorCores = 4
+    val maxCores = executorCores * 2
+    setBackend(Map("spark.executor.cores" -> executorCores.toString,
+      "spark.cores.max" -> maxCores.toString,
+      "spark.mesos.assignTaskRoundRobin" -> "false",
+      "spark.mesos.sortOffersDescending" -> "false"
+    ))
+
+    val executorMemory = backend.executorMemory(sc)
+    offerResources(List(
+      (executorMemory * 2, executorCores * 2),
+      (executorMemory * 2, executorCores * 2)))
+
+    verifyTaskLaunched(driver, "o1")
+    verifyTaskLaunched(driver, "o1")
+  }
+
   test("mesos creates multiple executors on a single slave") {
     val executorCores = 4
     setBackend(Map("spark.executor.cores" -> executorCores.toString))
