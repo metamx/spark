@@ -107,6 +107,13 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
   private val slaveOfferConstraints =
     parseConstraintString(sc.conf.get("spark.mesos.constraints", ""))
 
+  // Sort offers by CPUs in a descending manner.
+  // This allows tasks to be assigned to most used workers first.
+  private val sortOffersDescending = conf.getBoolean("spark.mesos.sortOffersDescending", false)
+
+  // Assign tasks in round robin manner. If set false, tasks will be assigned sequentially.
+  private val assignTasksRoundRobin = conf.getBoolean("spark.mesos.assignTaskRoundRobin", true)
+
   // Reject offers with mismatched constraints in seconds
   private val rejectOfferDurationForUnmetConstraints =
     getRejectOfferDurationForUnmetConstraints(sc)
@@ -324,8 +331,14 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
    */
   private def handleMatchedOffers(
       d: org.apache.mesos.SchedulerDriver, offers: mutable.Buffer[Offer]): Unit = {
-    val tasks = buildMesosTasks(offers)
-    for (offer <- offers) {
+    val offersMaybeSorted = if (sortOffersDescending) {
+      offers.sortWith { (l, r) =>
+        getResource(l.getResourcesList, "cpus") > getResource(r.getResourcesList, "cpus")
+      }
+    } else offers
+    val tasks = buildMesosTasks(offersMaybeSorted)
+
+    for (offer <- offersMaybeSorted) {
       val offerAttributes = toAttributeMap(offer.getAttributesList)
       val offerMem = getResource(offer.getResourcesList, "mem")
       val offerCpus = getResource(offer.getResourcesList, "cpus")
@@ -388,46 +401,64 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
       for (offer <- offers) {
         val slaveId = offer.getSlaveId.getValue
         val offerId = offer.getId.getValue
-        val resources = remainingResources(offerId)
+        var resources = remainingResources(offerId)
 
-        if (canLaunchTask(slaveId, resources)) {
-          // Create a task
-          launchTasks = true
-          val taskId = newMesosTaskId()
-          val offerCPUs = getResource(resources, "cpus").toInt
-
-          val taskCPUs = executorCores(offerCPUs)
-          val taskMemory = executorMemory(sc)
-
-          slaves.getOrElseUpdate(slaveId, new Slave(offer.getHostname)).taskIDs.add(taskId)
-
-          val (resourcesLeft, resourcesToUse) =
-            partitionTaskResources(resources, taskCPUs, taskMemory)
-
-          val taskBuilder = MesosTaskInfo.newBuilder()
-            .setTaskId(TaskID.newBuilder().setValue(taskId.toString).build())
-            .setSlaveId(offer.getSlaveId)
-            .setCommand(createCommand(offer, taskCPUs + extraCoresPerExecutor, taskId))
-            .setName("Task " + taskId)
-
-          taskBuilder.addAllResources(resourcesToUse.asJava)
-
-          sc.conf.getOption("spark.mesos.executor.docker.image").foreach { image =>
-            MesosSchedulerBackendUtil.setupContainerBuilderDockerInfo(
-              image,
-              sc.conf,
-              taskBuilder.getContainerBuilder
-            )
+        // sometimes you don't want to round-robin create
+        if (assignTasksRoundRobin) {
+          if (canLaunchTask(slaveId, resources)) {
+            launchTasks = true
+            // Create a task
+            createTask(offer, tasks, resources, remainingResources)
           }
-
-          tasks(offer.getId) ::= taskBuilder.build()
-          remainingResources(offerId) = resourcesLeft.asJava
-          totalCoresAcquired += taskCPUs
-          coresByTaskId(taskId) = taskCPUs
+        } else {
+          while (canLaunchTask(slaveId, resources)) {
+            launchTasks = true
+            createTask(offer, tasks, resources, remainingResources)
+            resources = remainingResources(offerId)
+          }
         }
       }
     }
     tasks.toMap
+  }
+
+  private def createTask(
+    offer: Offer,
+    tasks: mutable.Map[OfferID, List[MesosTaskInfo]],
+    resources: JList[Resource],
+    remainingResources: mutable.Map[String, JList[Resource]]): Unit = {
+    val slaveId = offer.getSlaveId.getValue
+    val taskId = newMesosTaskId()
+    val offerCPUs = getResource(resources, "cpus").toInt
+
+    val taskCPUs = executorCores(offerCPUs)
+    val taskMemory = executorMemory(sc)
+
+    slaves.getOrElseUpdate(slaveId, new Slave(offer.getHostname)).taskIDs.add(taskId)
+
+    val (resourcesLeft, resourcesToUse) =
+      partitionTaskResources(resources, taskCPUs, taskMemory)
+
+    val taskBuilder = MesosTaskInfo.newBuilder()
+      .setTaskId(TaskID.newBuilder().setValue(taskId.toString).build())
+      .setSlaveId(offer.getSlaveId)
+      .setCommand(createCommand(offer, taskCPUs + extraCoresPerExecutor, taskId))
+      .setName("Task " + taskId)
+
+    taskBuilder.addAllResources(resourcesToUse.asJava)
+
+    sc.conf.getOption("spark.mesos.executor.docker.image").foreach { image =>
+      MesosSchedulerBackendUtil.setupContainerBuilderDockerInfo(
+        image,
+        sc.conf,
+        taskBuilder.getContainerBuilder
+      )
+    }
+
+    tasks(offer.getId) ::= taskBuilder.build()
+    remainingResources(offer.getId.getValue) = resourcesLeft.asJava
+    totalCoresAcquired += taskCPUs
+    coresByTaskId(taskId) = taskCPUs
   }
 
   /** Extracts task needed resources from a list of available resources. */
