@@ -246,6 +246,10 @@ private[spark] class CoarseMesosSchedulerBackend(
     markRegistered()
   }
 
+  override def sufficientResourcesRegistered(): Boolean = {
+    totalCoresAcquired >= maxCores * minRegisteredRatio
+  }
+
   override def disconnected(d: SchedulerDriver): Unit = {
     logWarning(s"Disconnected")
   }
