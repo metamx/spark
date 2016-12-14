@@ -24,29 +24,25 @@
     <relativePath>../pom.xml</relativePath>
   </parent>
 
-  <artifactId>spark-cloud_2.10</artifactId>
+  <artifactId>spark-hadoop-cloud_2.10</artifactId>
   <packaging>jar</packaging>
   <name>Spark Project Cloud Integration</name>
   <description>
     Contains support for cloud infrastructures, specifically the Hadoop JARs and
     transitive dependencies needed to interact with the infrastructures.
 
-    Any project which explicitly depends upon the spark-hadoop-cloud artifact will get the dependencies;
-    the exact versions of which will depend upon the hadoop version Spark was compiled against.
+    Any project which explicitly depends upon the spark-hadoop-cloud artifact will get the
+    dependencies; the exact versions of which will depend upon the hadoop version Spark was compiled
+    against.
 
-    Hadoop 2.7:
-      hadoop-aws
-        aws-java-sdk-s3
-      hadoop-azure
-        azure-storage
-      hadoop-openstack
+    The imports of transitive dependencies (especially Jackson) are managed to make them consistent
+    with those of the Spark build.
 
     WARNING: the signatures of methods in aws-java-sdk/aws-java-sdk-s3 can change between versions:
     use the same version against which Hadoop was compiled.
-
   </description>
   <properties>
-    <sbt.project.name>cloud</sbt.project.name>
+    <sbt.project.name>hadoop-cloud</sbt.project.name>
   </properties>
 
   <dependencies>
