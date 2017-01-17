@@ -24,7 +24,7 @@
     <relativePath>../pom.xml</relativePath>
   </parent>
 
-  <artifactId>spark-cloud_2.11</artifactId>
+  <artifactId>spark-cloud_2.10</artifactId>
   <packaging>jar</packaging>
   <name>Spark Project Cloud Integration</name>
   <description>
