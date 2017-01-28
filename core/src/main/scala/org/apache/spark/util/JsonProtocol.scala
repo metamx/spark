@@ -305,10 +305,7 @@ private[spark] object JsonProtocol {
     ("Getting Result Time" -> taskInfo.gettingResultTime) ~
     ("Finish Time" -> taskInfo.finishTime) ~
     ("Failed" -> taskInfo.failed) ~
-<<<<<<< HEAD
     ("Killed" -> taskInfo.killed) ~
-    ("Accumulables" -> JArray(taskInfo.accumulables.toList.map(accumulableInfoToJson)))
-=======
     ("Accumulables" -> JArray(accumulablesToJson(taskInfo.accumulables, omitInternalAccums)))
   }
 
@@ -316,7 +313,6 @@ private[spark] object JsonProtocol {
     accumulables: Iterable[AccumulableInfo],
     omitInternalAccums: Boolean = false): List[JValue] = {
     accumulables.filter(p => !omitInternalAccums || !p.internal).map(accumulableInfoToJson).toList
->>>>>>> ede1d12... add an option to allow EventLoggingListener not to log internal accumulators for metrics
   }
 
   def accumulableInfoToJson(accumulableInfo: AccumulableInfo): JValue = {
