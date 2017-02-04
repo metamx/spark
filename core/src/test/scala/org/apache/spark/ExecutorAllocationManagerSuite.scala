@@ -19,7 +19,7 @@ package org.apache.spark
 
 import scala.collection.mutable
 
-import org.scalatest.{BeforeAndAfter, PrivateMethodTester}
+import org.scalatest.{BeforeAndAfter, Ignore, PrivateMethodTester}
 
 import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.scheduler._
@@ -31,7 +31,7 @@ import org.apache.spark.util.ManualClock
 /**
  * Test add and remove behavior of ExecutorAllocationManager.
  */
-class ExecutorAllocationManagerSuite
+@Ignore class ExecutorAllocationManagerSuite
   extends SparkFunSuite
   with LocalSparkContext
   with BeforeAndAfter {

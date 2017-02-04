@@ -1,3 +1,9 @@
+## This branch applies the following additional commits:
+
+To ignore one test in ExecutorAllocationManagerSuite: 5b47b371a1e9fe25aa9772846fe049fd1feb2957
+
+To reduce the size of event logs: 87beed407f170873e05eae63b99d28558448ae49, 757258aaeaffb425d2398235284462e8c30c82f3, f94c93193bbec9a63f9636ce32333cc16f00b0c5
+
 # Apache Spark
 
 Spark is a fast and general cluster computing system for Big Data. It provides
