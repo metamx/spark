@@ -552,9 +552,10 @@ class DAGScheduler(
    * @param callSite where in the user program this job was called
    * @param resultHandler callback to pass each result to
    * @param properties scheduler properties to attach to this job, e.g. fair scheduler pool name
-    * @return a JobWaiter object that can be used to block until the job finishes executing
+   *
+   * @return a JobWaiter object that can be used to block until the job finishes executing
    *         or can be used to cancel the job.
-    * @throws IllegalArgumentException when partitions ids are illegal
+   * @throws IllegalArgumentException when partitions ids are illegal
    */
   def submitJob[T, U](
       rdd: RDD[T],
@@ -597,7 +598,7 @@ class DAGScheduler(
    * @param callSite where in the user program this job was called
    * @param resultHandler callback to pass each result to
    * @param properties scheduler properties to attach to this job, e.g. fair scheduler pool name
-    * @throws Exception when the job fails
+   * @throws Exception when the job fails
    */
   def runJob[T, U](
       rdd: RDD[T],
