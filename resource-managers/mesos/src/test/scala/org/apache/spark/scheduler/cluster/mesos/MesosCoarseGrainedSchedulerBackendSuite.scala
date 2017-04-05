@@ -25,6 +25,7 @@ import scala.reflect.ClassTag
 
 import org.apache.mesos.{Protos, Scheduler, SchedulerDriver}
 import org.apache.mesos.Protos._
+import org.apache.mesos.Protos.Value.Scalar
 import org.mockito.Matchers
 import org.mockito.Matchers._
 import org.mockito.Mockito._
@@ -135,6 +136,43 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
 
     val cpus = backend.getResource(taskInfos.head.getResourcesList, "cpus")
     assert(cpus == offerCores)
+  }
+
+  test("mesos supports checkpointing") {
+
+    val checkpoint = true
+    val failoverTimeout = 10
+    setBackend(Map("spark.mesos.checkpoint" -> checkpoint.toString,
+      "spark.mesos.failoverTimeout" -> failoverTimeout.toString,
+      "spark.mesos.driver.webui.url" -> "http://webui"))
+
+    val taskScheduler = mock[TaskSchedulerImpl]
+    when(taskScheduler.sc).thenReturn(sc)
+    val driver = mock[SchedulerDriver]
+    when(driver.start()).thenReturn(Protos.Status.DRIVER_RUNNING)
+    val securityManager = mock[SecurityManager]
+
+    val backend = new MesosCoarseGrainedSchedulerBackend(
+      taskScheduler, sc, "master", securityManager) {
+      override protected def createSchedulerDriver(
+        masterUrl: String,
+        scheduler: Scheduler,
+        sparkUser: String,
+        appName: String,
+        conf: SparkConf,
+        webuiUrl: Option[String] = None,
+        checkpoint: Option[Boolean] = None,
+        failoverTimeout: Option[Double] = None,
+        frameworkId: Option[String] = None): SchedulerDriver = {
+        markRegistered()
+        assert(checkpoint.contains(true))
+        assert(failoverTimeout.contains(10.0))
+        driver
+      }
+    }
+
+    backend.start()
+
   }
 
   test("mesos does not acquire more than spark.cores.max") {
@@ -584,6 +622,76 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
 
     registerMockExecutor(launchedTasks(0).getTaskId.getValue, "s1", expectedCores)
     assert(backend.isReady)
+  }
+
+  test("Mesos should decline offers under unavailability") {
+    setBackend(Map(
+      "spark.mesos.unavailabilityThreshold" -> "3000"
+    ))
+    val offerId = "o1"
+    val slaveId = "s1"
+    val (mem, cpus) = (backend.executorMemory(sc), 4)
+
+    val currentTime = (System.currentTimeMillis() + 2*1000) * 1000000
+    val unavailability = Unavailability.newBuilder()
+    unavailability.setStart(TimeInfo.newBuilder().setNanoseconds(currentTime)).build()
+
+    val offerBuilder = Offer.newBuilder()
+    offerBuilder.addResourcesBuilder()
+      .setName("mem")
+      .setType(Value.Type.SCALAR)
+      .setScalar(Scalar.newBuilder().setValue(mem))
+    offerBuilder.addResourcesBuilder()
+      .setName("cpus")
+      .setType(Value.Type.SCALAR)
+      .setScalar(Scalar.newBuilder().setValue(cpus))
+    offerBuilder.setUnavailability(unavailability)
+    offerBuilder.setId(createOfferId(offerId))
+      .setFrameworkId(FrameworkID.newBuilder()
+        .setValue("f1"))
+      .setSlaveId(SlaveID.newBuilder().setValue(slaveId))
+      .setHostname(s"host$slaveId")
+      .build()
+
+    val finalOffer = offerBuilder.build()
+    backend.resourceOffers(driver, List(finalOffer).asJava)
+
+    verifyDeclinedOffer(driver, finalOffer.getId, true)
+  }
+
+  test("Mesos should accept offers not under unavailability") {
+    setBackend(Map(
+      "spark.mesos.unavailabilityThreshold" -> "10"
+    ))
+    val offerId = "o1"
+    val slaveId = "s1"
+    val (mem, cpus) = (backend.executorMemory(sc), 4)
+
+    val currentTime = (System.currentTimeMillis() + 2*1000) * 1000000
+    val unavailability = Unavailability.newBuilder()
+    unavailability.setStart(TimeInfo.newBuilder().setNanoseconds(currentTime)).build()
+
+    val offerBuilder = Offer.newBuilder()
+    offerBuilder.addResourcesBuilder()
+      .setName("mem")
+      .setType(Value.Type.SCALAR)
+      .setScalar(Scalar.newBuilder().setValue(mem))
+    offerBuilder.addResourcesBuilder()
+      .setName("cpus")
+      .setType(Value.Type.SCALAR)
+      .setScalar(Scalar.newBuilder().setValue(cpus))
+    offerBuilder.setUnavailability(unavailability)
+    offerBuilder.setId(createOfferId(offerId))
+      .setFrameworkId(FrameworkID.newBuilder()
+        .setValue("f1"))
+      .setSlaveId(SlaveID.newBuilder().setValue(slaveId))
+      .setHostname(s"host$slaveId")
+      .build()
+
+    val finalOffer = offerBuilder.build()
+    backend.resourceOffers(driver, List(finalOffer).asJava)
+
+    verifyTaskLaunched(driver, "o1")
   }
 
   private case class Resources(mem: Int, cpus: Int, gpus: Int = 0)

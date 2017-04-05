@@ -64,6 +64,9 @@ private[spark] class MesosFineGrainedSchedulerBackend(
   private[this] val slaveOfferConstraints =
     parseConstraintString(sc.conf.get("spark.mesos.constraints", ""))
 
+  private val minUnavailabilityThreshold =
+    sc.conf.getTimeAsMs("spark.mesos.unavailabilityThreshold", "0")
+
   // reject offers with mismatched constraints in seconds
   private val rejectOfferDurationForUnmetConstraints =
     getRejectOfferDurationForUnmetConstraints(sc.conf)
@@ -81,8 +84,8 @@ private[spark] class MesosFineGrainedSchedulerBackend(
       sc.appName,
       sc.conf,
       sc.conf.getOption("spark.mesos.driver.webui.url").orElse(sc.ui.map(_.webUrl)),
-      Option.empty,
-      Option.empty,
+      sc.conf.getOption("spark.mesos.checkpoint").map(_.toBoolean),
+      sc.conf.getOption("spark.mesos.failoverTimeout").map(_.toDouble),
       sc.conf.getOption("spark.mesos.driver.frameworkId")
     )
 
@@ -92,7 +95,7 @@ private[spark] class MesosFineGrainedSchedulerBackend(
 
   /**
    * Creates a MesosExecutorInfo that is used to launch a Mesos executor.
- *
+   *
    * @param availableResources Available resources that is offered by Mesos
    * @param execId The executor id to assign to this new executor.
    * @return A tuple of the new mesos executor info and the remaining available resources.
@@ -231,7 +234,8 @@ private[spark] class MesosFineGrainedSchedulerBackend(
         offers.asScala.partition { o =>
           val offerAttributes = toAttributeMap(o.getAttributesList)
           val meetsConstraints =
-            matchesAttributeRequirements(slaveOfferConstraints, offerAttributes)
+            matchesAttributeRequirements(slaveOfferConstraints, offerAttributes) &&
+          matchesUnavailabilityRequirements(minUnavailabilityThreshold, o)
 
           // add some debug messaging
           if (!meetsConstraints) {
