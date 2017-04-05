@@ -406,6 +406,15 @@ class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging with Seria
   def getBoolean(key: String, defaultValue: Boolean): Boolean = {
     getOption(key).map(_.toBoolean).getOrElse(defaultValue)
   }
+  /** Get a parameter as a Option[Boolean] */
+  def getOptionBoolean(key: String): Option[Boolean] = {
+    getOption(key).map(x => x.toBoolean)
+  }
+
+  /** Get a parameter as a Option[Double] */
+  def getOptionDouble(key: String): Option[Double] = {
+    getOption(key).map(_.toDouble)
+  }
 
   /** Get all executor environment variables set on this SparkConf */
   def getExecutorEnv: Seq[(String, String)] = {

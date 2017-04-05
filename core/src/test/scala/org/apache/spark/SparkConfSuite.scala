@@ -108,6 +108,18 @@ class SparkConfSuite extends SparkFunSuite with LocalSparkContext with ResetSyst
     assert(conf.getOption("k4") === None)
   }
 
+  test("option get and set") {
+
+    // These tests will fail
+
+    val conf = new SparkConf(false)
+    assert(conf.getAll.toSet === Set())
+    assert(conf.getOptionBoolean("key") === None)
+    assert(conf.getOptionDouble("key2") === None)
+    conf.set("lol", "fail")
+    assert(conf.getBoolean("lol", false) === 1)
+  }
+
   test("creating SparkContext without master and app name") {
     val conf = new SparkConf(false)
     intercept[SparkException] { sc = new SparkContext(conf) }
