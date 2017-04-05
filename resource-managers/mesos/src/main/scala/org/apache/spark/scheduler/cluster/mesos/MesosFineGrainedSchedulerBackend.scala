@@ -78,8 +78,8 @@ private[spark] class MesosFineGrainedSchedulerBackend(
       sc.appName,
       sc.conf,
       sc.conf.getOption("spark.mesos.driver.webui.url").orElse(sc.ui.map(_.webUrl)),
-      Option.empty,
-      Option.empty,
+      sc.conf.getOption("spark.mesos.checkpoint"),
+      sc.conf.getOption("spark.mesos.failoverTimeout"),
       sc.conf.getOption("spark.mesos.driver.frameworkId")
     )
 
