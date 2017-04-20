@@ -82,7 +82,7 @@ class MesosFineGrainedSchedulerBackendSuite
   test("mesos supports checkpointing") {
     val conf = new SparkConf
     conf.set("spark.mesos.checkpoint", "true")
-    conf.set("spark.mesos.failoverTimeout", 10)
+    conf.set("spark.mesos.failoverTimeout", "10")
 
     val sc = mock[SparkContext]
     when(sc.conf).thenReturn(conf)
