@@ -303,6 +303,19 @@ trait MesosSchedulerUtils extends Logging {
   }
 
   /**
+    * Ensure that an offer is accepted only if the start of the unavailability period is after
+    * the minimum configured threshold
+    */
+  def matchesUnavailabilityRequirements(
+    threshold: Long,
+    offerUnavailability: Unavailability): Boolean = {
+    val unavailabilityStart = offerUnavailability.getStart.getNanoseconds / 1000000
+    val currentTime = System.currentTimeMillis()
+
+    unavailabilityStart - currentTime > threshold
+  }
+
+  /**
    * Parses the attributes constraints provided to spark and build a matching data struct:
    *  Map[<attribute-name>, Set[values-to-match]]
    *  The constraints are specified as ';' separated key-value pairs where keys and values

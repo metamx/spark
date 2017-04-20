@@ -114,6 +114,8 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
   private val slaveOfferConstraints =
     parseConstraintString(sc.conf.get("spark.mesos.constraints", ""))
 
+  private val minUnavailabilityThreshold = conf.getTimeAsMs("spark.mesos.unavailabilityThreshold")
+
   // Reject offers with mismatched constraints in seconds
   private val rejectOfferDurationForUnmetConstraints =
     getRejectOfferDurationForUnmetConstraints(sc)
@@ -281,7 +283,8 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
 
       val (matchedOffers, unmatchedOffers) = offers.asScala.partition { offer =>
         val offerAttributes = toAttributeMap(offer.getAttributesList)
-        matchesAttributeRequirements(slaveOfferConstraints, offerAttributes)
+        matchesAttributeRequirements(slaveOfferConstraints, offerAttributes) &&
+        matchesUnavailabilityRequirements(minUnavailabilityThreshold, offer.getUnavailability)
       }
 
       declineUnmatchedOffers(d, unmatchedOffers)
