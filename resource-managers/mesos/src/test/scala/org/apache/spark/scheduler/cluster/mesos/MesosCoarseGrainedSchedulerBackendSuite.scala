@@ -140,17 +140,39 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
   }
 
   test("mesos supports checkpointing") {
-    setBackend()
 
-    val executorMemory = backend.executorMemory(sc)
-    val offerCores = 10
-    offerResources(List(Resources(executorMemory * 2, offerCores)))
+    val checkpoint = true
+    val failoverTimeout = 10
+    setBackend(Map("spark.mesos.checkpoint" -> checkpoint.toString,
+      "spark.mesos.failoverTimeout" -> failoverTimeout.toString))
 
-    val taskInfos = verifyTaskLaunched(driver, "o1")
-    assert(taskInfos.length == 1)
+    val taskScheduler = mock[TaskSchedulerImpl]
+    when(taskScheduler.sc).thenReturn(sc)
+    val driver = mock[SchedulerDriver]
+    when(driver.start()).thenReturn(Protos.Status.DRIVER_RUNNING)
+    val securityManager = mock[SecurityManager]
 
-    val cpus = backend.getResource(taskInfos.head.getResourcesList, "cpus")
-    assert(cpus == offerCores)
+    val backend = new MesosCoarseGrainedSchedulerBackend(
+      taskScheduler, sc, "master", securityManager) {
+      override protected def createSchedulerDriver(
+        masterUrl: String,
+        scheduler: Scheduler,
+        sparkUser: String,
+        appName: String,
+        conf: SparkConf,
+        webuiUrl: Option[String] = None,
+        checkpoint: Option[Boolean] = None,
+        failoverTimeout: Option[Double] = None,
+        frameworkId: Option[String] = None): SchedulerDriver = {
+        markRegistered()
+        assert(checkpoint.equals(true))
+        assert(failoverTimeout.equals(10))
+        driver
+      }
+    }
+
+    backend.start()
+
   }
 
   test("mesos does not acquire more than spark.cores.max") {
