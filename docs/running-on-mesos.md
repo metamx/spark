@@ -533,6 +533,15 @@ See the [configuration page](configuration.html) for information on Spark config
     NOTE: To avoid accidental destruction of tasks, productionframeworks typically set this to a large value (e.g., 1 week).
   </td>
 </tr>
+<tr>
+  <td><code>spark.mesos.unavailabilityThreshold</code></td>
+  <td><code>(none)</code></td>
+  <td>
+    Minimum threshold in MilliSeconds to accept offers that have unavailability period
+    set. Accepts offers iff the the current time plus threshold is less than the 
+    start of Unavailability period.
+  </td>
+</tr>
 </table>
 
 # Troubleshooting and Debugging
