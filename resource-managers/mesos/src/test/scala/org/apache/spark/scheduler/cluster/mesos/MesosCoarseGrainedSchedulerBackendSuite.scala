@@ -18,13 +18,12 @@
 package org.apache.spark.scheduler.cluster.mesos
 
 import java.util.concurrent.TimeUnit
-
+import org.apache.mesos.Protos.Value.{Range, Ranges, Scalar}
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.duration._
 import scala.concurrent.Promise
 import scala.reflect.ClassTag
-
 import org.apache.mesos.{Protos, Scheduler, SchedulerDriver}
 import org.apache.mesos.Protos._
 import org.mockito.Matchers
@@ -33,7 +32,6 @@ import org.mockito.Mockito._
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.mock.MockitoSugar
 import org.scalatest.BeforeAndAfter
-
 import org.apache.spark.{LocalSparkContext, SecurityManager, SparkConf, SparkContext, SparkFunSuite}
 import org.apache.spark.internal.config._
 import org.apache.spark.network.shuffle.mesos.MesosExternalShuffleClient
@@ -502,6 +500,46 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
     val networkInfos = launchedTasks.head.getContainer.getNetworkInfosList
     assert(networkInfos.size == 1)
     assert(networkInfos.get(0).getName == "test-network-name")
+  }
+
+  test("Supports Unavailability") {
+    setBackend(Map(
+  //    "spark.mesos.unavailabilityThreshold" -> "1"
+    ))
+    val offerId = "o1"
+    val slaveId = "s1"
+    val (mem, cpus) = (backend.executorMemory(sc), 4)
+
+    val unavailability = Unavailability.newBuilder()
+    unavailability.setStart(TimeInfo.newBuilder().setNanoseconds(2000000))
+      .build()
+
+
+
+    val offerBuilder = Offer.newBuilder()
+    offerBuilder.addResourcesBuilder()
+      .setName("mem")
+      .setType(Value.Type.SCALAR)
+      .setScalar(Scalar.newBuilder().setValue(mem))
+    offerBuilder.addResourcesBuilder()
+      .setName("cpus")
+      .setType(Value.Type.SCALAR)
+      .setScalar(Scalar.newBuilder().setValue(cpus))
+    offerBuilder.setUnavailability(unavailability)
+    offerBuilder.setId(createOfferId(offerId))
+      .setFrameworkId(FrameworkID.newBuilder()
+        .setValue("f1"))
+      .setSlaveId(SlaveID.newBuilder().setValue(slaveId))
+      .setHostname(s"host${slaveId}")
+      .build()
+
+    val finalOffer = offerBuilder.build()
+
+    backend.resourceOffers(driver, List(finalOffer).asJava)
+    verifyTaskLaunched(driver, "o1")
+
+    backend.doKillExecutors(List("0"))
+    verify(driver, times(1)).killTask(createTaskId("0"))
   }
 
   private case class Resources(mem: Int, cpus: Int, gpus: Int = 0)
