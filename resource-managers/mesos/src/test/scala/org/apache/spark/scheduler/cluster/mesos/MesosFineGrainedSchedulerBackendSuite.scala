@@ -107,7 +107,7 @@ class MesosFineGrainedSchedulerBackendSuite
         frameworkId: Option[String] = None): SchedulerDriver = {
         markRegistered()
         assert(checkpoint.contains(true))
-        assert(failoverTimeout.contains(10))
+        assert(failoverTimeout.contains(10.0))
         driver
       }
     }
