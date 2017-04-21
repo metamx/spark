@@ -285,7 +285,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
       val (matchedOffers, unmatchedOffers) = offers.asScala.partition { offer =>
         val offerAttributes = toAttributeMap(offer.getAttributesList)
         matchesAttributeRequirements(slaveOfferConstraints, offerAttributes) &&
-        matchesUnavailabilityRequirements(minUnavailabilityThreshold, offer.getUnavailability)
+        matchesUnavailabilityRequirements(minUnavailabilityThreshold, offer)
       }
 
       declineUnmatchedOffers(d, unmatchedOffers)
@@ -323,8 +323,8 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
     else {
       logDebug(
         s"Declining offer: $id with attributes: $offerAttributes mem: $mem" +
-          s" cpu: $cpus port: $ports unavailability start: ${offer.getUnavailability} " +
-          s"for $refuseSeconds seconds" +
+          s" cpu: $cpus port: $ports unavailability start: " +
+          s"${offer.getUnavailability.getStart.getNanoseconds} " + s"for $refuseSeconds seconds" +
           reason.map(r => s" (reason: $r)").getOrElse("")
       )
     }
