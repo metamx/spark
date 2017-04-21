@@ -114,7 +114,8 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
   private val slaveOfferConstraints =
     parseConstraintString(sc.conf.get("spark.mesos.constraints", ""))
 
-  private val minUnavailabilityThreshold = conf.getTimeAsMs("spark.mesos.unavailabilityThreshold")
+  private val minUnavailabilityThreshold =
+    sc.conf.getTimeAsMs("spark.mesos.unavailabilityThreshold", "0")
 
   // Reject offers with mismatched constraints in seconds
   private val rejectOfferDurationForUnmetConstraints =
@@ -312,9 +313,21 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
     val cpus = getResource(offer.getResourcesList, "cpus")
     val ports = getRangeResource(offer.getResourcesList, "ports")
 
-    logDebug(s"Declining offer: $id with attributes: $offerAttributes mem: $mem" +
-      s" cpu: $cpus port: $ports for $refuseSeconds seconds" +
-      reason.map(r => s" (reason: $r)").getOrElse(""))
+    if(!offer.hasUnavailability) {
+      logDebug(
+        s"Declining offer: $id with attributes: $offerAttributes mem: $mem" +
+          s" cpu: $cpus port: $ports for $refuseSeconds seconds" +
+          reason.map(r => s" (reason: $r)").getOrElse("")
+      )
+    }
+    else {
+      logDebug(
+        s"Declining offer: $id with attributes: $offerAttributes mem: $mem" +
+          s" cpu: $cpus port: $ports unavailability start: ${offer.getUnavailability} " +
+          s"for $refuseSeconds seconds" +
+          reason.map(r => s" (reason: $r)").getOrElse("")
+      )
+    }
 
     refuseSeconds match {
       case Some(seconds) =>

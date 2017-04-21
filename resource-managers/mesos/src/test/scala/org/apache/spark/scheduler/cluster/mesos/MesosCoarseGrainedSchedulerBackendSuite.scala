@@ -502,19 +502,18 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
     assert(networkInfos.get(0).getName == "test-network-name")
   }
 
-  test("Supports Unavailability") {
+  test("Mesos should decline offers under unavailability") {
     setBackend(Map(
-  //    "spark.mesos.unavailabilityThreshold" -> "1"
+      "spark.mesos.unavailabilityThreshold" -> "100000000"
     ))
     val offerId = "o1"
     val slaveId = "s1"
     val (mem, cpus) = (backend.executorMemory(sc), 4)
 
+    val currentTime = (System.currentTimeMillis() + 2*1000) * 1000000
     val unavailability = Unavailability.newBuilder()
-    unavailability.setStart(TimeInfo.newBuilder().setNanoseconds(2000000))
+    unavailability.setStart(TimeInfo.newBuilder().setNanoseconds(currentTime))
       .build()
-
-
 
     val offerBuilder = Offer.newBuilder()
     offerBuilder.addResourcesBuilder()
@@ -530,16 +529,13 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
       .setFrameworkId(FrameworkID.newBuilder()
         .setValue("f1"))
       .setSlaveId(SlaveID.newBuilder().setValue(slaveId))
-      .setHostname(s"host${slaveId}")
+      .setHostname(s"host$slaveId")
       .build()
 
     val finalOffer = offerBuilder.build()
-
     backend.resourceOffers(driver, List(finalOffer).asJava)
-    verifyTaskLaunched(driver, "o1")
 
-    backend.doKillExecutors(List("0"))
-    verify(driver, times(1)).killTask(createTaskId("0"))
+    verifyDeclinedOffer(driver, finalOffer.getId, true)
   }
 
   private case class Resources(mem: Int, cpus: Int, gpus: Int = 0)

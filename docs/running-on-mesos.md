@@ -533,7 +533,7 @@ A few places to look during debugging:
 
 - Mesos master on port `:5050`
   - Slaves should appear in the slaves tab
-  - Sparspark.mesos.fetcherCache.enablek applications should appear in the frameworks tab
+  - Spark applications should appear in the frameworks tab
   - Tasks should appear in the details of a framework
   - Check the stdout and stderr of the sandbox of failed tasks
 - Mesos logs
