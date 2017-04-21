@@ -18,7 +18,7 @@
 package org.apache.spark.scheduler.cluster.mesos
 
 import java.io.File
-import java.util.{Collections, List => JList}
+import java.util.{Collections, List => JList, Date}
 import java.util.concurrent.locks.ReentrantLock
 
 import scala.collection.JavaConverters._
@@ -312,22 +312,17 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
     val mem = getResource(offer.getResourcesList, "mem")
     val cpus = getResource(offer.getResourcesList, "cpus")
     val ports = getRangeResource(offer.getResourcesList, "ports")
+    val unavailabilityStart = offer.hasUnavailability match {
+      case true => new Date(offer.getUnavailability.getStart.getNanoseconds / 1000000L).toString
+      case false => "Not Set"
+    }
 
-    if(!offer.hasUnavailability) {
-      logDebug(
-        s"Declining offer: $id with attributes: $offerAttributes mem: $mem" +
-          s" cpu: $cpus port: $ports for $refuseSeconds seconds" +
-          reason.map(r => s" (reason: $r)").getOrElse("")
-      )
-    }
-    else {
-      logDebug(
-        s"Declining offer: $id with attributes: $offerAttributes mem: $mem" +
-          s" cpu: $cpus port: $ports unavailability start: " +
-          s"${offer.getUnavailability.getStart.getNanoseconds} " + s"for $refuseSeconds seconds" +
-          reason.map(r => s" (reason: $r)").getOrElse("")
-      )
-    }
+    logDebug(
+      s"Declining offer: $id with attributes: $offerAttributes mem: $mem" +
+        s" cpu: $cpus port: $ports unavailability start: " +
+        s"${unavailabilityStart} " + s"for $refuseSeconds seconds" +
+        reason.map(r => s" (reason: $r)").getOrElse("")
+    )
 
     refuseSeconds match {
       case Some(seconds) =>

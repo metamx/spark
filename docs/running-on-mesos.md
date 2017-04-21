@@ -521,8 +521,8 @@ See the [configuration page](configuration.html) for information on Spark config
   <td><code>(none)</code></td>
   <td>
     Minimum threshold in MilliSeconds to accept offers that have unavailability period
-    set. Accepts offers iff the the current time plus threshold are less that the 
-    start of Unavailability period
+    set. Accepts offers iff the the current time plus threshold is less than the 
+    start of Unavailability period.
   </td>
 </tr>
 </table>

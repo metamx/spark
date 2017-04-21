@@ -18,13 +18,13 @@
 package org.apache.spark.scheduler.cluster.mesos
 
 import java.util.concurrent.TimeUnit
-import org.apache.mesos.Protos.Value.{Range, Ranges, Scalar}
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.duration._
 import scala.concurrent.Promise
 import scala.reflect.ClassTag
 import org.apache.mesos.{Protos, Scheduler, SchedulerDriver}
+import org.apache.mesos.Protos.Value.Scalar
 import org.apache.mesos.Protos._
 import org.mockito.Matchers
 import org.mockito.Matchers._
@@ -512,8 +512,7 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
 
     val currentTime = (System.currentTimeMillis() + 2*1000) * 1000000
     val unavailability = Unavailability.newBuilder()
-    unavailability.setStart(TimeInfo.newBuilder().setNanoseconds(currentTime))
-      .build()
+    unavailability.setStart(TimeInfo.newBuilder().setNanoseconds(currentTime)).build()
 
     val offerBuilder = Offer.newBuilder()
     offerBuilder.addResourcesBuilder()
