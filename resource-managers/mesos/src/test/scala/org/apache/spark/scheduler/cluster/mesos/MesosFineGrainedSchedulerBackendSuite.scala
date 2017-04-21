@@ -83,6 +83,7 @@ class MesosFineGrainedSchedulerBackendSuite
     val conf = new SparkConf
     conf.set("spark.mesos.checkpoint", "true")
     conf.set("spark.mesos.failoverTimeout", "10")
+    conf.set("spark.mesos.driver.webui.url", "http://webui")
 
     val sc = mock[SparkContext]
     when(sc.conf).thenReturn(conf)

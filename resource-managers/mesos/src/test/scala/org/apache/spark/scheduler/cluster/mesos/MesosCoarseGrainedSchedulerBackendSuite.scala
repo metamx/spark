@@ -144,7 +144,8 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
     val checkpoint = true
     val failoverTimeout = 10
     setBackend(Map("spark.mesos.checkpoint" -> checkpoint.toString,
-      "spark.mesos.failoverTimeout" -> failoverTimeout.toString))
+      "spark.mesos.failoverTimeout" -> failoverTimeout.toString,
+      "spark.mesos.driver.webui.url" -> "http://webui"))
 
     val taskScheduler = mock[TaskSchedulerImpl]
     when(taskScheduler.sc).thenReturn(sc)
