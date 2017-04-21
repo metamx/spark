@@ -516,6 +516,15 @@ See the [configuration page](configuration.html) for information on Spark config
     Fetcher Cache</a>
   </td>
 </tr>
+<tr>
+  <td><code>spark.mesos.unavailabilityThreshold</code></td>
+  <td><code>(none)</code></td>
+  <td>
+    Minimum threshold in MilliSeconds to accept offers that have unavailability period
+    set. Accepts offers iff the the current time plus threshold are less that the 
+    start of Unavailability period
+  </td>
+</tr>
 </table>
 
 # Troubleshooting and Debugging
@@ -524,7 +533,7 @@ A few places to look during debugging:
 
 - Mesos master on port `:5050`
   - Slaves should appear in the slaves tab
-  - Spark applications should appear in the frameworks tab
+  - Sparspark.mesos.fetcherCache.enablek applications should appear in the frameworks tab
   - Tasks should appear in the details of a framework
   - Check the stdout and stderr of the sandbox of failed tasks
 - Mesos logs
