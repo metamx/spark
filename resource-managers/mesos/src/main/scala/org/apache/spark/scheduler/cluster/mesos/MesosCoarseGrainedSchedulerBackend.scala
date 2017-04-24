@@ -312,7 +312,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
     val mem = getResource(offer.getResourcesList, "mem")
     val cpus = getResource(offer.getResourcesList, "cpus")
     val ports = getRangeResource(offer.getResourcesList, "ports")
-    val unavailabilityStartMs = offer.hasUnavailability match {
+    val unavailabilityStart = offer.hasUnavailability match {
       case true => Option(
         new Date(offer.getUnavailability.getStart.getNanoseconds / 1000000L).toString)
       case false => None
@@ -321,8 +321,8 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
     logDebug(
       s"Declining offer: $id with attributes: $offerAttributes mem: $mem" +
       s" cpu: $cpus port: $ports" +
-      unavailabilityStartMs.map(" unavailability start: " + _).getOrElse(" ") +
-      s"for $refuseSeconds seconds" +
+      unavailabilityStart.map(" unavailability start: " + _).getOrElse("") +
+      s" for $refuseSeconds seconds" +
       reason.map(r => s" (reason: $r)").getOrElse(""))
 
     refuseSeconds match {
