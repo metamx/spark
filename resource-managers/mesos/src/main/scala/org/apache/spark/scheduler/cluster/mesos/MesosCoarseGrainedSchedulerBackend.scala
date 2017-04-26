@@ -312,10 +312,10 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
     val mem = getResource(offer.getResourcesList, "mem")
     val cpus = getResource(offer.getResourcesList, "cpus")
     val ports = getRangeResource(offer.getResourcesList, "ports")
-    val unavailabilityStart = offer.hasUnavailability match {
-      case true => Option(
-        new Date(offer.getUnavailability.getStart.getNanoseconds / 1000000L).toString)
-      case false => None
+    val unavailabilityStart = if (offer.hasUnavailability) {
+      Option(new Date(offer.getUnavailability.getStart.getNanoseconds / 1000000L).toString)
+    } else {
+      None
     }
 
     logDebug(

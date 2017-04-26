@@ -311,11 +311,11 @@ trait MesosSchedulerUtils extends Logging {
     offer: Offer): Boolean = {
 
     val currentTime = System.currentTimeMillis()
-    offer.hasUnavailability match {
-      case true =>
-        val unavailabilityStart = offer.getUnavailability.getStart.getNanoseconds / 1000000
-        unavailabilityStart > currentTime + threshold
-      case _ => true
+    if (offer.hasUnavailability) {
+      val unavailabilityStart = offer.getUnavailability.getStart.getNanoseconds / 1000000
+      unavailabilityStart > currentTime + threshold
+    } else {
+      true
     }
   }
 
