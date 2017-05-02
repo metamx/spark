@@ -27,12 +27,7 @@ import scala.reflect.ClassTag
 
 import org.apache.mesos.{Protos, Scheduler, SchedulerDriver}
 import org.apache.mesos.Protos._
-import org.mockito.Matchers
-import org.mockito.Matchers._
-import org.mockito.Mockito._
-import org.scalatest.concurrent.ScalaFutures
-import org.scalatest.mock.MockitoSugar
-import org.scalatest.BeforeAndAfter
+import org.apache.mesos.Protos.Value.Scalar
 
 import org.apache.spark.{LocalSparkContext, SecurityManager, SparkConf, SparkContext, SparkFunSuite}
 import org.apache.spark.internal.config._
@@ -41,6 +36,14 @@ import org.apache.spark.rpc.RpcEndpointRef
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages.RemoveExecutor
 import org.apache.spark.scheduler.TaskSchedulerImpl
 import org.apache.spark.scheduler.cluster.mesos.Utils._
+
+import org.mockito.Matchers._
+import org.mockito.Mockito._
+import org.mockito.Matchers
+
+import org.scalatest.BeforeAndAfter
+import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.mock.MockitoSugar
 
 class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
     with LocalSparkContext
@@ -526,6 +529,76 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
     val uris = launchedTasks.head.getCommand.getUrisList
     assert(uris.size() == 1)
     assert(!uris.asScala.head.getCache)
+  }
+
+  test("Mesos should decline offers under unavailability") {
+    setBackend(Map(
+      "spark.mesos.unavailabilityThreshold" -> "3000"
+    ))
+    val offerId = "o1"
+    val slaveId = "s1"
+    val (mem, cpus) = (backend.executorMemory(sc), 4)
+
+    val currentTime = (System.currentTimeMillis() + 2*1000) * 1000000
+    val unavailability = Unavailability.newBuilder()
+    unavailability.setStart(TimeInfo.newBuilder().setNanoseconds(currentTime)).build()
+
+    val offerBuilder = Offer.newBuilder()
+    offerBuilder.addResourcesBuilder()
+      .setName("mem")
+      .setType(Value.Type.SCALAR)
+      .setScalar(Scalar.newBuilder().setValue(mem))
+    offerBuilder.addResourcesBuilder()
+      .setName("cpus")
+      .setType(Value.Type.SCALAR)
+      .setScalar(Scalar.newBuilder().setValue(cpus))
+    offerBuilder.setUnavailability(unavailability)
+    offerBuilder.setId(createOfferId(offerId))
+      .setFrameworkId(FrameworkID.newBuilder()
+        .setValue("f1"))
+      .setSlaveId(SlaveID.newBuilder().setValue(slaveId))
+      .setHostname(s"host$slaveId")
+      .build()
+
+    val finalOffer = offerBuilder.build()
+    backend.resourceOffers(driver, List(finalOffer).asJava)
+
+    verifyDeclinedOffer(driver, finalOffer.getId, true)
+  }
+
+  test("Mesos should accept offers not under unavailability") {
+    setBackend(Map(
+      "spark.mesos.unavailabilityThreshold" -> "10"
+    ))
+    val offerId = "o1"
+    val slaveId = "s1"
+    val (mem, cpus) = (backend.executorMemory(sc), 4)
+
+    val currentTime = (System.currentTimeMillis() + 2*1000) * 1000000
+    val unavailability = Unavailability.newBuilder()
+    unavailability.setStart(TimeInfo.newBuilder().setNanoseconds(currentTime)).build()
+
+    val offerBuilder = Offer.newBuilder()
+    offerBuilder.addResourcesBuilder()
+      .setName("mem")
+      .setType(Value.Type.SCALAR)
+      .setScalar(Scalar.newBuilder().setValue(mem))
+    offerBuilder.addResourcesBuilder()
+      .setName("cpus")
+      .setType(Value.Type.SCALAR)
+      .setScalar(Scalar.newBuilder().setValue(cpus))
+    offerBuilder.setUnavailability(unavailability)
+    offerBuilder.setId(createOfferId(offerId))
+      .setFrameworkId(FrameworkID.newBuilder()
+        .setValue("f1"))
+      .setSlaveId(SlaveID.newBuilder().setValue(slaveId))
+      .setHostname(s"host$slaveId")
+      .build()
+
+    val finalOffer = offerBuilder.build()
+    backend.resourceOffers(driver, List(finalOffer).asJava)
+
+    verifyTaskLaunched(driver, "o1")
   }
 
   private case class Resources(mem: Int, cpus: Int, gpus: Int = 0)
