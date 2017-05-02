@@ -1,8 +1,16 @@
 ## This branch applies the following additional commits:
 
-To ignore one test in ExecutorAllocationManagerSuite: 5b47b371a1e9fe25aa9772846fe049fd1feb2957
+ - CodeStyle Edits - ee8621ee423e6ed28913d9f7abb825e957a556d5
 
-To reduce the size of event logs: 87beed407f170873e05eae63b99d28558448ae49, 757258aaeaffb425d2398235284462e8c30c82f3, f94c93193bbec9a63f9636ce32333cc16f00b0c5
+ - Support for handling unavailability - 60a464d39b4691f4ce13b34a8da353c1adf7e76f
+
+ - Fix for an error that crept in while Backporting - b1710c1bd856e6e9175f323623eea2b91d06654c
+ 
+ - Support For Mesos Checkpointing - c741fb995c79fd6c740c439f0cf3cfd504a0358e
+ 
+ - To ignore one test in ExecutorAllocationManagerSuite: 5b47b371a1e9fe25aa9772846fe049fd1feb2957
+ 
+ - To reduce the size of event logs: 87beed407f170873e05eae63b99d28558448ae49, 757258aaeaffb425d2398235284462e8c30c82f3, f94c93193bbec9a63f9636ce32333cc16f00b0c5
 
 # Apache Spark
 
