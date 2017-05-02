@@ -18,7 +18,7 @@
 package org.apache.spark.scheduler.cluster.mesos
 
 import java.io.File
-import java.util.{Collections, List => JList, Date}
+import java.util.{Collections, Date, List => JList}
 import java.util.concurrent.locks.ReentrantLock
 
 import scala.collection.JavaConverters._

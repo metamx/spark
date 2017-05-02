@@ -536,16 +536,7 @@ class MesosFineGrainedSchedulerBackendSuite
       3
     ))
 
-    val taskDesc = new TaskDescription(
-      taskId = 1L,
-      attemptNumber = 0,
-      executorId = "s1",
-      name = "n1",
-      index = 0,
-      addedFiles = mutable.Map.empty[String, Long],
-      addedJars = mutable.Map.empty[String, Long],
-      properties = new Properties(),
-      ByteBuffer.wrap(new Array[Byte](0)))
+    val taskDesc = new TaskDescription(1L, 0, "s1", "n1", 0, ByteBuffer.wrap(new Array[Byte](0)))
     when(taskScheduler.resourceOffers(expectedWorkerOffers)).thenReturn(Seq(Seq(taskDesc)))
     when(taskScheduler.CPUS_PER_TASK).thenReturn(2)
 
