@@ -301,9 +301,9 @@ trait MesosSchedulerUtils extends Logging {
   }
 
   /**
-    * Ensure that an offer is accepted only if the start of the unavailability period is after
-    * the minimum configured threshold
-    */
+   * Ensure that an offer is accepted only if the start of the
+   * unavailability period is after the minimum configured threshold
+   */
   def matchesUnavailabilityRequirements(
     threshold: Long,
     offer: Offer): Boolean = {
