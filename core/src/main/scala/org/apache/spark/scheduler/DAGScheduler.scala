@@ -555,7 +555,6 @@ class DAGScheduler(
    *
    * @return a JobWaiter object that can be used to block until the job finishes executing
    *         or can be used to cancel the job.
-   *
    * @throws IllegalArgumentException when partitions ids are illegal
    */
   def submitJob[T, U](
@@ -599,7 +598,6 @@ class DAGScheduler(
    * @param callSite where in the user program this job was called
    * @param resultHandler callback to pass each result to
    * @param properties scheduler properties to attach to this job, e.g. fair scheduler pool name
-   *
    * @throws Exception when the job fails
    */
   def runJob[T, U](
@@ -1152,7 +1150,10 @@ class DAGScheduler(
             val resultStage = stage.asInstanceOf[ResultStage]
             resultStage.activeJob match {
               case Some(job) =>
-                if (!job.finished(rt.outputId)) {
+                if (
+                  rt.stageAttemptId == resultStage.latestInfo.attemptId &&
+                  !job.finished(rt.outputId)
+                ) {
                   updateAccumulators(event)
                   job.finished(rt.outputId) = true
                   job.numFinished += 1

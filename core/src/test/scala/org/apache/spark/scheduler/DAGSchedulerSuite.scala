@@ -627,6 +627,45 @@ class DAGSchedulerSuite extends SparkFunSuite with LocalSparkContext with Timeou
     assertDataStructuresEmpty()
   }
 
+  test("run trivial shuffle with fetch failure while previous attempts still run") {
+    val shuffleMapRdd = new MyRDD(sc, 3, Nil)
+    val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(3))
+    val shuffleId = shuffleDep.shuffleId
+    val reduceRdd = new MyRDD(sc, 3, List(shuffleDep), tracker = mapOutputTracker)
+    submit(reduceRdd, Array(0, 1, 2))
+    complete(taskSets(0), Seq(
+      (Success, makeMapStatus("hostA", reduceRdd.partitions.length)),
+      (Success, makeMapStatus("hostB", reduceRdd.partitions.length)),
+      (Success, makeMapStatus("hostC", reduceRdd.partitions.length))))
+    // the 2nd ResultTask failed
+    complete(taskSets(1), Seq(
+      (FetchFailed(makeBlockManagerId("hostA"), shuffleId, 0, 0, "ignored"), null)))
+    // this will get called
+    // blockManagerMaster.removeExecutor("exec-hostA")
+    // ask the scheduler to try it again
+    scheduler.resubmitFailedStages()
+    // have the 2nd attempt pass
+    complete(taskSets(2), Seq((Success, makeMapStatus("hostA", reduceRdd.partitions.length))))
+
+    // tasks from the previous attempt finishes
+    runEvent(makeCompletionEvent(taskSets(1).tasks(1), Success, 43))
+    runEvent(makeCompletionEvent(taskSets(1).tasks(2), Success, 44))
+
+    // a task from 2nd attempt finishes
+    runEvent(makeCompletionEvent(taskSets(3).tasks(0), Success, 42))
+
+    // Job should not have finished
+    assert(scheduler.activeJobs.nonEmpty)
+
+    runEvent(makeCompletionEvent(taskSets(3).tasks(1), Success, 43))
+    runEvent(makeCompletionEvent(taskSets(3).tasks(2), Success, 44))
+    // we can see both result blocks now
+    assert(mapOutputTracker.getMapSizesByExecutorId(shuffleId, 0).map(_._1.host).toSet ===
+      HashSet("hostA", "hostB", "hostC"))
+    assert(results === Map(0 -> 42, 1 -> 43, 2 -> 44))
+    assertDataStructuresEmpty()
+  }
+
   private val shuffleFileLossTests = Seq(
     ("slave lost with shuffle service", SlaveLost("", false), true, false),
     ("worker lost with shuffle service", SlaveLost("", true), true, true),
