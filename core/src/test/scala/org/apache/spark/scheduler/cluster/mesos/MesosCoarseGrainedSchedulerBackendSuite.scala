@@ -157,8 +157,8 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
         failoverTimeout: Option[Double] = None,
         frameworkId: Option[String] = None): SchedulerDriver = {
         markRegistered()
-        assert(checkpoint.contains(true))
-        assert(failoverTimeout.contains(10.0))
+        assert(checkpoint.exists(_ == true))
+        assert(failoverTimeout.exists(_ == 10.0))
         driver
       }
     }
