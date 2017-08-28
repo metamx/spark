@@ -1,6 +1,8 @@
 ## This branch applies the following additional commits:
  
- - Jets3t updated to fix aws v4 signatures
+ - Add hadoop-cloud module - f273b219ba9836508c02f6984f1e0d0ba5c15724 
+ 
+ - Jets3t updated to fix aws v4 signatures - 475b30508c0ea5e9efad4fc0d0a266233fb76226
 
  - Fix a bug in Netty - c7bd2bb13840f95bce016579b223a440d9354fda
 
