@@ -1,5 +1,7 @@
 ## This branch applies the following additional commits:
  
+ - Jets3t updated to fix aws v4 signatures
+
  - Fix a bug in Netty - c7bd2bb13840f95bce016579b223a440d9354fda
 
  - CodeStyle Edits - ee8621ee423e6ed28913d9f7abb825e957a556d5
