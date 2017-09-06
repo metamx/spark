@@ -28,7 +28,6 @@ dist: trusty
 # 2. Choose language and target JDKs for parallel builds.
 language: java
 jdk:
-  - oraclejdk7
   - oraclejdk8
 
 # 3. Setup cache directory for SBT and Maven.
@@ -39,13 +38,30 @@ cache:
 
 # 4. Turn off notifications.
 notifications:
-  email: false
+  email: backend+build@metamarkets.com
 
 # 5. Run maven install before running lint-java.
+before_install:
+- cp .travis.settings.xml $HOME/.m2/settings.xml
 install:
-  - export MAVEN_SKIP_RC=1
-  - build/mvn -T 4 -q -DskipTests -Pmesos -Pyarn -Phadoop-2.3 -Pkinesis-asl -Phive -Phive-thriftserver install
+- mvn -B -Dhadoop.version=${SPARK_HADOOP_VERSION} -P${SPARK_HADOOP_PROFILE} -DskipTests clean compile test-compile install
+deploy:
+- mvn -B -Dhadoop.version=${SPARK_HADOOP_VERSION} -P${SPARK_HADOOP_PROFILE} -Pmesos -Phadoop-cloud -pl '!sql/hive,!examples' test
 
 # 6. Run lint-java.
 script:
   - dev/lint-java
+
+services:
+- docker
+
+branches:
+  only:
+  - v2.1.0-mmx
+  - travis
+
+cache:
+  yarn: true
+  directories:
+  - "$HOME/.m2/"
+  - "$HOME/google-cloud-sdk/"
