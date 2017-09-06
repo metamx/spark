@@ -42,18 +42,17 @@ notifications:
 
 # 5. Run maven install before running lint-java.
 before_install:
-- cp .travis.settings.xml $HOME/.m2/settings.xml
+  - cp .travis.settings.xml $HOME/.m2/settings.xml
 install:
-- mvn -B -Dhadoop.version=${SPARK_HADOOP_VERSION} -P${SPARK_HADOOP_PROFILE} -DskipTests clean compile test-compile install
-deploy:
-- mvn -B -Dhadoop.version=${SPARK_HADOOP_VERSION} -P${SPARK_HADOOP_PROFILE} -Pmesos -Phadoop-cloud -pl '!sql/hive,!examples' test
+  - mvn -B -Dhadoop.version=${SPARK_HADOOP_VERSION} -P${SPARK_HADOOP_PROFILE} -DskipTests clean compile test-compile install
+  - mvn -B -Dhadoop.version=${SPARK_HADOOP_VERSION} -P${SPARK_HADOOP_PROFILE} -Pmesos -Phadoop-cloud -pl '!sql/hive,!examples' test
 
 # 6. Run lint-java.
 script:
   - dev/lint-java
 
 services:
-- docker
+  - docker
 
 branches:
   only:
