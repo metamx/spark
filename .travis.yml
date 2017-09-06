@@ -44,8 +44,8 @@ notifications:
 before_install:
   - cp .travis.settings.xml $HOME/.m2/settings.xml
 install:
-  - mvn -B -Dhadoop.version=${SPARK_HADOOP_VERSION} -P${SPARK_HADOOP_PROFILE} -DskipTests clean compile test-compile install
-  - mvn -B -Dhadoop.version=${SPARK_HADOOP_VERSION} -P${SPARK_HADOOP_PROFILE} -Pmesos -Phadoop-cloud -pl '!sql/hive,!examples' test
+  - travis_wait 120 mvn -B -Dhadoop.version=${SPARK_HADOOP_VERSION} -P${SPARK_HADOOP_PROFILE} -DskipTests clean compile test-compile install
+  - travis_wait 120 mvn -B -Dhadoop.version=${SPARK_HADOOP_VERSION} -P${SPARK_HADOOP_PROFILE} -Pmesos -Phadoop-cloud -pl '!sql/hive,!examples' test
 
 # 6. Run lint-java.
 script:
