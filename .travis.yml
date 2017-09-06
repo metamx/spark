@@ -58,9 +58,3 @@ branches:
   only:
   - v2.1.0-mmx
   - travis
-
-cache:
-  yarn: true
-  directories:
-  - "$HOME/.m2/"
-  - "$HOME/google-cloud-sdk/"
