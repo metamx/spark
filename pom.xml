@@ -2545,7 +2545,7 @@
       <id>hadoop-2.3</id>
       <properties>
         <hadoop.version>2.3.0</hadoop.version>
-        <jets3t.version>0.9.5-mmx2</jets3t.version>
+        <jets3t.version>0.9.0</jets3t.version>
       </properties>
     </profile>
 
@@ -2553,7 +2553,7 @@
       <id>hadoop-2.4</id>
       <properties>
         <hadoop.version>2.4.1</hadoop.version>
-        <jets3t.version>0.9.5-mmx2</jets3t.version>
+        <jets3t.version>0.9.0</jets3t.version>
       </properties>
     </profile>
 
@@ -2561,7 +2561,7 @@
       <id>hadoop-2.6</id>
       <properties>
         <hadoop.version>2.6.4</hadoop.version>
-        <jets3t.version>0.9.5-mmx2</jets3t.version>
+        <jets3t.version>0.9.0</jets3t.version>
         <zookeeper.version>3.4.6</zookeeper.version>
         <curator.version>2.6.0</curator.version>
       </properties>
@@ -2571,7 +2571,7 @@
       <id>hadoop-2.7</id>
       <properties>
         <hadoop.version>2.7.3</hadoop.version>
-        <jets3t.version>0.9.5-mmx2</jets3t.version>
+        <jets3t.version>0.9.0</jets3t.version>
         <zookeeper.version>3.4.6</zookeeper.version>
         <curator.version>2.6.0</curator.version>
       </properties>
@@ -2581,7 +2581,7 @@
       <id>hadoop-2.8</id>
       <properties>
         <hadoop.version>2.8.1</hadoop.version>
-        <jets3t.version>0.9.5-mmx2</jets3t.version>
+        <jets3t.version>0.9.0</jets3t.version>
         <zookeeper.version>3.4.6</zookeeper.version>
         <curator.version>2.6.0</curator.version>
       </properties>
