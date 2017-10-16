@@ -267,7 +267,11 @@ private[spark] object JsonProtocol {
       ("Task ID" -> taskId) ~
       ("Stage ID" -> stageId) ~
       ("Stage Attempt ID" -> stageAttemptId) ~
-      ("Accumulator Updates" -> accumulablesToJson(updates, omitInternalAccums))
+      ("Accumulator Updates" -> JArray(
+        updates
+          .filter(p => !omitInternalAccums || !p.internal)
+          .toList.map(accumulableInfoToJson)
+      ))
     })
   }
 
